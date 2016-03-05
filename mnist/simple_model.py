@@ -1,7 +1,6 @@
-import os
 import shutil
 
-import input_data
+from mnist import input_data
 import tensorflow as tf
 
 tmp_filename = "/tmp/mnist_simple_model_logs"
@@ -52,4 +51,4 @@ for i in range(1000000):
         print("Accuracy at step %s: %s" % (i, acc))
 
 
-print sess.run(accuracy, feed_dict={x: mnist.test.images, y_: mnist.test.labels})
+print(sess.run(accuracy, feed_dict={x: mnist.test.images, y_: mnist.test.labels}))
