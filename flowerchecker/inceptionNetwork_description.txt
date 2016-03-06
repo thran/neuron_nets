@@ -1,0 +1,19 @@
+DecodeJpeg/contents
+    - raw image data
+DecodeJpeg
+    - uint8 image [h, w, channels = 3]
+Cast
+    - uint8 -> float32
+ExpandDims/dim
+ExpandDims
+    - add dimension [1, h, w, channels]
+ResizeBilinear/size
+    - 299 x 299
+ResizeBilinear
+    - resize image to 299 x 299
+Sub/y
+Sub
+   - -128 - normalize
+Mul/y
+Mul
+   - /128 - normalize
