@@ -1,7 +1,7 @@
 .idea
 mnist/MNIST_data
-flowerchecker/models
-flowerchecker/cache
-flowerchecker/google_retrain.py
-flowerchecker/datasets/102-Oxford/*
-flowerchecker/datasets/flowerchecker/*
+image_recognition/models
+image_recognition/cache
+image_recognition/google_retrain.py
+image_recognition/datasets/102-Oxford/*
+image_recognition/datasets/flowerchecker/*
