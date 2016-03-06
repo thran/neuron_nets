@@ -1,5 +1,7 @@
 .idea
 mnist/MNIST_data
 flowerchecker/models
+flowerchecker/cache
 flowerchecker/google_retrain.py
-flowerchecker/datasets
+flowerchecker/datasets/102-Oxford/*
+flowerchecker/datasets/flowerchecker/*
