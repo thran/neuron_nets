@@ -25,7 +25,7 @@ def mnist_train(epochs=1):
 
         image_data_placeholder = graph.get_tensor_by_name("Cast:0")
         bottleneck_tensor = graph.get_tensor_by_name(BOTTLENECK_TENSOR_NAME)
-        ground_truth_placeholder = graph.get_tensor_by_name('ground_truth:0')
+        ground_truth_placeholder = graph.get_tensor_by_name(GROUND_TRUTH_TENSOR_NAME)
 
         sess.run(tf.initialize_all_variables())
 
@@ -35,8 +35,8 @@ def mnist_train(epochs=1):
             print('\r>> Learning {} from {} - {:.1f}%'.format(i, iterations, i / iterations * 100.0), end="")
             batch_data, batch_labels = mnist.train.next_batch(1)
             batch_data = batch_data.repeat(3, axis=1).reshape(28, 28, 3) * 255
-            bottlenecks = compute_bottlenecks(sess, graph, images=[batch_data], image_names=[i],
-                                              image_data_placeholder=image_data_placeholder,
+            bottlenecks = compute_bottlenecks(sess, graph, data=[batch_data], identificators=[i],
+                                              feed_placeholder=image_data_placeholder,
                                               bottleneck_tensor=bottleneck_tensor)
             train_step.run(feed_dict={bottleneck_tensor: bottlenecks, ground_truth_placeholder: batch_labels})
         print()
@@ -67,4 +67,5 @@ def panda_test(num_top_predictions=5):
         print(node_id, predictions[node_id])
 
 
-mnist_train()
+# mnist_train()
+panda_test()
