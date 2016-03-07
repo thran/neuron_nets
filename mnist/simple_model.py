@@ -1,9 +1,11 @@
 import shutil
 
+from image_recognition.utils import ensure_dir_exists
 from mnist import input_data
 import tensorflow as tf
 
 tmp_filename = "/tmp/mnist_simple_model_logs"
+ensure_dir_exists(tmp_filename)
 
 mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
 
