@@ -71,6 +71,10 @@ def compute_bottlenecks(sess, graph, data, identificators, feed_placeholder, bot
     return np.array(bottlenecks_values)
 
 
+def in_top_k(predictions, labels, k):
+    return tf.reduce_mean(tf.to_float(tf.nn.in_top_k(predictions, labels, k)))
+
+
 def dense_to_one_hot(labels, num_classes):
     num_labels = labels.shape[0]
     index_offset = np.arange(num_labels) * num_classes

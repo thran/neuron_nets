@@ -16,7 +16,7 @@ class NetEnd:
         self.class_count = None
         self.image_data_placeholder = None
         self.bottleneck_tensor = None
-        self.softmax = None
+        self.predictions = None
         self.keep_prob_placeholder = None
         self.ground_truth_placeholder = None
         self.cross_entropy = None
@@ -37,13 +37,18 @@ class NetEnd:
         pass
 
     def add_train_step(self):
-        self.cross_entropy = -tf.reduce_sum(self.ground_truth_placeholder * tf.log(self.softmax))
+        self.cross_entropy = -tf.reduce_sum(self.ground_truth_placeholder * tf.log(self.predictions))
         cross_entropy_mean = tf.reduce_mean(self.cross_entropy)
         self.train_step = self._optimizer(self._learning_rate).minimize(cross_entropy_mean)
 
-        correct_prediction = tf.equal(tf.argmax(self.softmax, 1), tf.argmax(self.ground_truth_placeholder, 1))
+        labels = tf.argmax(self.ground_truth_placeholder, 1)
+        correct_prediction = tf.equal(tf.argmax(self.predictions, 1), labels)
         self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
         tf.scalar_summary("accuracy", self.accuracy)
+        tf.histogram_summary("probabilities", self.predictions)
+        tf.scalar_summary("top3", in_top_k(self.predictions, labels, 3))
+        tf.scalar_summary("top5", in_top_k(self.predictions, labels, 5))
+        tf.scalar_summary("top10", in_top_k(self.predictions, labels, 10))
 
     def __str__(self):
         if self.name == "Abstract Net end":
@@ -69,7 +74,7 @@ class SimpleNetEnd(NetEnd):
         layer_biases = tf.Variable(tf.zeros([self.class_count]))
         dropout = tf.nn.dropout(self.bottleneck_tensor, self.keep_prob_placeholder)
         logits = tf.matmul(dropout, layer_weights) + layer_biases
-        self.softmax = tf.nn.softmax(logits)
+        self.predictions = tf.nn.softmax(logits)
 
 
 class HiddenLayersNetEnd(NetEnd):
@@ -94,7 +99,7 @@ class HiddenLayersNetEnd(NetEnd):
 
         dropout = tf.nn.dropout(layer, self.keep_prob_placeholder)
         logits = tf.matmul(dropout, layer_weights) + layer_biases
-        self.softmax = tf.nn.softmax(logits)
+        self.predictions = tf.nn.softmax(logits)
 
 
 class Recognizer:
@@ -130,7 +135,7 @@ class Recognizer:
             return results
         return results[0]
 
-    def train(self, iterations=100000, batch_size=50, evaluate_every=1000):
+    def train(self, iterations=30000, batch_size=50, evaluate_every=1000):
         with tf.Session() as sess:
             writer = tf.train.SummaryWriter(self.tensor_board_path, sess.graph_def)
             summaries = tf.merge_all_summaries()
@@ -156,6 +161,6 @@ FC_data_set = FlowerCheckerDataSet()
 FC_data_set.prepare_data()
 
 # ne = SimpleNetEnd()
-ne = HiddenLayersNetEnd([2048])
+ne = HiddenLayersNetEnd([2048], learning_rate=5e-4)
 rec = Recognizer(FC_data_set, ne)
 rec.train()
