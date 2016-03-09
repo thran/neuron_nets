@@ -1,3 +1,4 @@
+import inspect
 from image_recognition.dataset import FlowerCheckerDataSet
 from image_recognition.utils import *
 
@@ -10,7 +11,7 @@ BOTTLENECK_TENSOR_SIZE = 2048
 class NetEnd:
     name = "Abstract Net end"
 
-    def __init__(self):
+    def __init__(self, learning_rate=1e-4, optimizer=None):
         self.graph = None
         self.class_count = None
         self.image_data_placeholder = None
@@ -20,29 +21,38 @@ class NetEnd:
         self.ground_truth_placeholder = None
         self.cross_entropy = None
         self.accuracy = None
+        self._learning_rate = learning_rate
+        self._optimizer = optimizer if optimizer is not None else tf.train.AdamOptimizer
 
         self.train_step = None
 
-    def prepare(self, graph, class_count, learning_rate=0.01, optimizer=None):
+    def prepare(self, graph, class_count):
         self.graph = graph
         self.prepare_tensors()
         self.class_count = class_count
         self.add_end()
-        self.add_train_step(learning_rate=learning_rate, optimizer=optimizer)
+        self.add_train_step()
 
     def add_end(self):
         pass
 
-    def add_train_step(self, learning_rate=0.01, optimizer=None):
+    def add_train_step(self):
         self.cross_entropy = -tf.reduce_sum(self.ground_truth_placeholder * tf.log(self.softmax))
         cross_entropy_mean = tf.reduce_mean(self.cross_entropy)
-        self.train_step = optimizer(learning_rate).minimize(cross_entropy_mean)
+        self.train_step = self._optimizer(self._learning_rate).minimize(cross_entropy_mean)
 
         correct_prediction = tf.equal(tf.argmax(self.softmax, 1), tf.argmax(self.ground_truth_placeholder, 1))
         self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
+        tf.scalar_summary("accuracy", self.accuracy)
 
     def __str__(self):
-        return self.name
+        if self.name == "Abstract Net end":
+            raise AttributeError("Model name not specified")
+        s = self.name
+        (args, _, _, defaults) = inspect.getargspec(self.__init__)
+        s += "".join([", {}:{}".format(a, str(getattr(self, "_" + a))) for a, d in zip(args[-len(defaults):], defaults)
+                      if getattr(self, "_" + a) != d])
+        return s
 
     def prepare_tensors(self):
         self.bottleneck_tensor = self.graph.get_tensor_by_name(BOTTLENECK_TENSOR_NAME)
@@ -65,18 +75,15 @@ class SimpleNetEnd(NetEnd):
 class HiddenLayersNetEnd(NetEnd):
     name = "Hidden layers"
 
-    def __init__(self, hidden_neuron_counts):
-        super().__init__()
-        self.hidden_neuron_counts = hidden_neuron_counts
-
-    def __str__(self):
-        return "{} - {}".format(self.name, self.hidden_neuron_counts)
+    def __init__(self, hidden_neuron_counts=None, **kwargs):
+        super().__init__(**kwargs)
+        self._hidden_neuron_counts = hidden_neuron_counts
 
     def add_end(self):
         last_count = BOTTLENECK_TENSOR_SIZE
         layer = self.bottleneck_tensor
 
-        for count in self.hidden_neuron_counts:
+        for count in self._hidden_neuron_counts:
             layer_weights = tf.Variable(tf.truncated_normal([last_count, count], stddev=0.001))
             layer_biases = tf.Variable(tf.zeros([count]))
             layer = tf.nn.relu(tf.matmul(layer, layer_weights) + layer_biases)
@@ -97,7 +104,7 @@ class Recognizer:
 
         self.graph = load_google_inception_graph(model_dir_name)
         self.ne = net_end
-        self.ne.prepare(self.graph, self.data_set.class_count, optimizer=tf.train.AdamOptimizer, learning_rate=1e-4)
+        self.ne.prepare(self.graph, self.data_set.class_count)
         self.tensor_board_path = os.path.join("/tmp/plant_recognition", str(self.ne))
 
     def get_bottlenecks(self, sess, data):
@@ -123,10 +130,9 @@ class Recognizer:
             return results
         return results[0]
 
-    def train(self, iterations=1000000, batch_size=100, evaluate_every=100):
+    def train(self, iterations=100000, batch_size=50, evaluate_every=1000):
         with tf.Session() as sess:
             writer = tf.train.SummaryWriter(self.tensor_board_path, sess.graph_def)
-            tf.scalar_summary("accuracy", self.ne.accuracy)
             summaries = tf.merge_all_summaries()
 
             sess.run(tf.initialize_all_variables())
