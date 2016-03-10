@@ -50,7 +50,8 @@ def load_google_inception_graph(dir_name):
     return sess.graph
 
 
-def compute_bottlenecks(sess, data, identificators, feed_placeholder, bottleneck_tensor, cache_dir=None):
+def compute_bottlenecks(sess, data, identificators, feed_placeholder, bottleneck_tensor,
+                        cache_dir=None, prepare_function=None):
     bottlenecks_values = []
     if cache_dir is not None:
         cache_dir = os.path.join(cache_dir, "bottlenecks")
@@ -68,6 +69,8 @@ def compute_bottlenecks(sess, data, identificators, feed_placeholder, bottleneck
                 computed = True
                 print('\r>> Computing bottlenecks for {}: {} from {} - {:.1f}%'
                       .format("data", i + 1, iterations, (i + 1) / iterations * 100.0), end="")
+                if prepare_function:
+                    image = prepare_function(sess, [image])[0]
                 bottleneck_values = sess.run(bottleneck_tensor, feed_dict={feed_placeholder: image})[0]
                 np.save(cache_filename, bottleneck_values)
         bottlenecks_values.append(bottleneck_values)
@@ -111,3 +114,12 @@ def add_input_distortions(image_data_placeholder, input_height, input_width, inp
     brightness_value = tf.random_uniform(tensor_shape.scalar(), minval=brightness_min, maxval=brightness_max)
     brightened_image = tf.mul(flipped_image, brightness_value)
     return tf.expand_dims(brightened_image, 0)
+
+
+def represent(obj):
+    if type(obj) is not dict:
+        return str(obj)
+    parts = []
+    for key in sorted(obj.keys()):
+        parts.append("'{}': {}".format(key, represent(obj[key])))
+    return "{" + ", ".join(parts) + "}"

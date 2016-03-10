@@ -2,23 +2,26 @@ import inspect
 from image_recognition.dataset import FlowerCheckerDataSet
 from image_recognition.utils import *
 
-CACHE_DIR = "cache"
+CACHE_DIR = "/home/thran/projects/cache"
 JPEG_DATA_TENSOR_NAME = 'DecodeJpeg/contents:0'
 RESIZED_INPUT_TENSOR_NAME = 'ResizeBilinear:0'
 BOTTLENECK_TENSOR_NAME = 'pool_3/_reshape:0'
 BOTTLENECK_TENSOR_SIZE = 2048
 INPUT_HEIGHT, INPUT_WIDTH = 299, 299
 
+EARLY_CUT = 'mixed_9/join:0'
+
 
 class NetEnd:
     name = "Abstract Net end"
 
-    def __init__(self, learning_rate=1e-4, optimizer=None, distort=None):
+    def __init__(self, learning_rate=1e-4, optimizer=None, distort=None, cut_early=False):
         self.graph = None
         self.class_count = None
         self.image_data_placeholder = None
         self.resized_image_data_placeholder = None
         self.distorted_image_tensor = None
+        self.bottleneck_tensor_size = BOTTLENECK_TENSOR_SIZE
         self.bottleneck_tensor = None
         self.predictions = None
         self.keep_prob_placeholder = None
@@ -28,12 +31,16 @@ class NetEnd:
         self._learning_rate = learning_rate
         self._optimizer = optimizer if optimizer is not None else tf.train.AdamOptimizer
         self._distort = distort
+        self._cut_early = cut_early
+        self.cache_dir = CACHE_DIR
 
         self.train_step = None
 
     def prepare(self, graph, class_count):
         self.graph = graph
         self.prepare_tensors()
+        if self._cut_early:
+            self.cut_early()
         self.class_count = class_count
         if self._distort is not None:
             self.distorted_image_tensor = add_input_distortions(
@@ -70,9 +77,11 @@ class NetEnd:
             raise AttributeError("Model name not specified")
         s = self.name
         (args, _, _, defaults) = inspect.getargspec(self.__init__)
-        args += ("learning_rate", "optimizer", "distort")
-        defaults += (1e-4, tf.train.AdamOptimizer, None)
-        s += "".join([", {}:{}".format(a, repr(getattr(self, "_" + a))) for a, d in zip(args[-len(defaults):], defaults)
+        if not defaults:
+            args, defaults = tuple(), tuple()
+        args += ("learning_rate", "optimizer", "distort", "cut_early")
+        defaults += (1e-4, tf.train.AdamOptimizer, None, False)
+        s += "".join([", {}:{}".format(a, represent(getattr(self, "_" + a))) for a, d in zip(args[-len(defaults):], defaults)
                       if getattr(self, "_" + a) != d])
         return s
 
@@ -83,23 +92,33 @@ class NetEnd:
         self.keep_prob_placeholder = tf.placeholder("float")
         self.ground_truth_placeholder = tf.placeholder(tf.float32, [None, self.class_count])
 
-    def get_bottlenecks(self, sess, data, evaluation=False):
+    def cut_early(self):
+        cut_tensor = self.graph.get_tensor_by_name(EARLY_CUT)
+        self.bottleneck_tensor_size = 1
+        for s in cut_tensor.get_shape():
+            self.bottleneck_tensor_size *= int(s)
+        self.bottleneck_tensor = tf.reshape(cut_tensor, (1, self.bottleneck_tensor_size))
+        self.cache_dir = os.path.join(CACHE_DIR, EARLY_CUT)
+
+    def get_bottlenecks(self, sess, data, evaluation=False, epoch=0):
         data, labels, identificators = data
         if self._distort and not evaluation:
-            data = self.distort_images(sess, data)
-            return compute_bottlenecks(sess, data, identificators,
-                                       self.resized_image_data_placeholder, self.bottleneck_tensor)
+            cache_dir = os.path.join(self.cache_dir, represent(self._distort), str(epoch // self._distort["epochs"]))
+            return compute_bottlenecks(sess, data, identificators, self.resized_image_data_placeholder,
+                                       self.bottleneck_tensor, cache_dir, prepare_function=self.distort_images)
 
-        cache_dir = CACHE_DIR
         return compute_bottlenecks(sess, data, identificators,
-                                   self.image_data_placeholder, self.bottleneck_tensor, cache_dir)
+                                   self.image_data_placeholder, self.bottleneck_tensor, self.cache_dir)
 
 
 class SimpleNetEnd(NetEnd):
     name = "Simple"
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
     def add_end(self):
-        layer_weights = tf.Variable(tf.truncated_normal([BOTTLENECK_TENSOR_SIZE, self.class_count], stddev=0.001))
+        layer_weights = tf.Variable(tf.truncated_normal([self.bottleneck_tensor_size, self.class_count], stddev=0.001))
         layer_biases = tf.Variable(tf.zeros([self.class_count]))
         dropout = tf.nn.dropout(self.bottleneck_tensor, self.keep_prob_placeholder)
         logits = tf.matmul(dropout, layer_weights) + layer_biases
@@ -114,7 +133,7 @@ class HiddenLayersNetEnd(NetEnd):
         self._hidden_neuron_counts = hidden_neuron_counts
 
     def add_end(self):
-        last_count = BOTTLENECK_TENSOR_SIZE
+        last_count = self.bottleneck_tensor_size
         layer = self.bottleneck_tensor
 
         for count in self._hidden_neuron_counts:
@@ -166,7 +185,7 @@ class Recognizer:
             sess.run(tf.initialize_all_variables())
             for i in range(iterations):
                 batch = self.data_set.train.get_batch(batch_size)
-                bottlenecks = self.ne.get_bottlenecks(sess, batch)
+                bottlenecks = self.ne.get_bottlenecks(sess, batch, epoch=self.data_set.train.finished_epochs)
                 self.ne.train_step.run(feed_dict={
                     self.ne.bottleneck_tensor: bottlenecks,
                     self.ne.ground_truth_placeholder: batch[1],
@@ -183,13 +202,14 @@ class Recognizer:
 FC_data_set = FlowerCheckerDataSet()
 FC_data_set.prepare_data()
 
-if True:
-    ne = HiddenLayersNetEnd([2048], distort={"crop": 0.5, "brightness": 0.3, "flip": True})
+if False:
+    ne = HiddenLayersNetEnd([2048], distort={"crop": 0.5, "brightness": 0.3, "flip": True, "epochs": 10})
     rec = Recognizer(FC_data_set, ne)
     print(ne)
-    rec.train(evaluate_every=20)
-else:
-    ne = HiddenLayersNetEnd([2048], learning_rate=0.001)
+    rec.train(evaluate_every=50)
+if True:
+    # ne = SimpleNetEnd(cut_early=True)
+    ne = HiddenLayersNetEnd([2048], cut_early=True)
     rec = Recognizer(FC_data_set, ne)
     print(ne)
     rec.train()
