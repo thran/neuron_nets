@@ -1,4 +1,7 @@
 import inspect
+
+from tensorflow.python.platform import gfile
+
 from image_recognition.dataset import FlowerCheckerDataSet
 from image_recognition.utils import *
 
@@ -9,8 +12,13 @@ RESIZED_INPUT_TENSOR_NAME = 'ResizeBilinear:0'
 BOTTLENECK_TENSOR_NAME = 'pool_3/_reshape:0'
 BOTTLENECK_TENSOR_SIZE = 2048
 INPUT_HEIGHT, INPUT_WIDTH = 299, 299
+MODEL_DIR = "models"
 
 EARLY_CUT = 'mixed_9/join:0'
+EARLY_CUTS = {
+    1: 'mixed_9/join:0',
+    2: 'mixed_8/join:0',
+}
 
 
 class NetEnd:
@@ -98,15 +106,19 @@ class NetEnd:
         self.ground_truth_placeholder = tf.placeholder(tf.float32, [None, self.class_count])
 
     def cut_early(self):
-        cut_tensor = self.graph.get_tensor_by_name(EARLY_CUT)
+        cut_name = EARLY_CUTS[self._cut_early] if type(self._cut_early) == int else EARLY_CUT
+        self.bottleneck_tensor = self.graph.get_tensor_by_name(cut_name)
         self.bottleneck_tensor_size = 1
-        for s in cut_tensor.get_shape():
+        for s in self.bottleneck_tensor.get_shape():
             self.bottleneck_tensor_size *= int(s)
 
-        max_pool = tf.nn.max_pool(cut_tensor, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
-        self.bottleneck_tensor_size //= 4
-        self.bottleneck_tensor = tf.reshape(max_pool, (1, self.bottleneck_tensor_size))
-        self.cache_dir = os.path.join(CACHE_DIR, EARLY_CUT.replace('/', "#"))
+        if self.bottleneck_tensor_size > 80000:
+            self.bottleneck_tensor = tf.nn.max_pool(self.bottleneck_tensor,
+                                                    ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+            self.bottleneck_tensor_size //= 4
+        self.bottleneck_tensor = tf.reshape(self.bottleneck_tensor, (1, self.bottleneck_tensor_size))
+
+        self.cache_dir = os.path.join(CACHE_DIR, cut_name.replace('/', "#"))
 
     def get_bottlenecks(self, sess, data, evaluation=False, epoch=0):
         data, labels, identificators = data
@@ -130,7 +142,7 @@ class SimpleNetEnd(NetEnd):
         layer_biases = tf.Variable(tf.zeros([self.class_count]))
         dropout = tf.nn.dropout(self.bottleneck_tensor, self.keep_prob_placeholder)
         logits = tf.matmul(dropout, layer_weights) + layer_biases
-        self.predictions = tf.nn.softmax(logits)
+        self.predictions = tf.nn.softmax(logits, name="final_result")
 
 
 class HiddenLayersNetEnd(NetEnd):
@@ -155,13 +167,13 @@ class HiddenLayersNetEnd(NetEnd):
 
         dropout = tf.nn.dropout(layer, self.keep_prob_placeholder)
         logits = tf.matmul(dropout, layer_weights) + layer_biases
-        self.predictions = tf.nn.softmax(logits)
+        self.predictions = tf.nn.softmax(logits, name="final_result")
 
 
-class Recognizer:
+class Trainer:
     def __init__(self, data_set, net_end):
         self.data_set = data_set
-        model_dir_name = maybe_download_inception_and_extract()
+        model_dir_name = maybe_download_inception_and_extract(MODEL_DIR)
 
         self.graph = load_google_inception_graph(model_dir_name)
         self.ne = net_end
@@ -212,7 +224,7 @@ class Recognizer:
 
                 if (i + 1) % save_every == 0:
                     path = os.path.join(self.save_path, "checkpoint")
-                    ensure_dir_exists(path  )
+                    ensure_dir_exists(self.save_path)
                     saver.save(sess, path, global_step=i + 1)
 
     def load_last_checkpoint(self, sess, checkpoint=None, saver=None):
@@ -225,6 +237,12 @@ class Recognizer:
             i = 0
         return i
 
+    def export(self):
+        output_file = os.path.join(MODEL_DIR, str(self.ne) + ".pb")
+        print(output_file)
+        with gfile.FastGFile(output_file, 'wb') as f:
+            f.write(self.graph.as_graph_def().SerializeToString())
+
 
 FC_data_set = FlowerCheckerDataSet()
 FC_data_set.prepare_data()
@@ -232,14 +250,21 @@ FC_data_set.prepare_data()
 if False:
     ne = SimpleNetEnd()
     # ne = HiddenLayersNetEnd([2048], distort={"crop": 0.5, "brightness": 0.3, "flip": True, "epochs": 10})
-    rec = Recognizer(FC_data_set, ne)
+    trainer = Trainer(FC_data_set, ne)
     print(ne)
-    rec.train(evaluate_every=50, save_every=100)
+    trainer.train(evaluate_every=50, save_every=100)
 
 if True:
     # ne = SimpleNetEnd(cut_early=True)
     ne = HiddenLayersNetEnd([2048], learning_rate=1e-4,
                             distort={"crop": 0.5, "brightness": 0.3, "flip": True, "epochs": 10}, cut_early=True)
-    rec = Recognizer(FC_data_set, ne)
+    trainer = Trainer(FC_data_set, ne)
     print(ne, repr(ne))
-    rec.train()
+    # rec.train()
+    trainer.export()
+
+if False:
+    ne = HiddenLayersNetEnd([2048], learning_rate=1e-4, cut_early=2)
+    trainer = Trainer(FC_data_set, ne)
+    print(ne, repr(ne))
+    trainer.train()

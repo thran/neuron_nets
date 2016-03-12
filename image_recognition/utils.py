@@ -8,7 +8,6 @@ from tensorflow.python.framework import tensor_shape
 
 DATA_URL = 'http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz'
 GRAPH_DEF_PB = 'classify_image_graph_def.pb'
-MODEL_DIR = "models"
 
 
 def hash_str(string, length=20):
@@ -20,9 +19,9 @@ def ensure_dir_exists(dir_name):
         os.makedirs(dir_name)
 
 
-def maybe_download_inception_and_extract():
+def maybe_download_inception_and_extract(model_dir):
     filename = DATA_URL.split('/')[-1]
-    dir_name = os.path.join(MODEL_DIR, filename)
+    dir_name = os.path.join(model_dir, filename)
     ensure_dir_exists(dir_name)
     file_path = os.path.join(dir_name, filename)
     if not os.path.exists(file_path):
