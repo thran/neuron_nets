@@ -251,7 +251,6 @@ if False:
     ne = SimpleNetEnd()
     # ne = HiddenLayersNetEnd([2048], distort={"crop": 0.5, "brightness": 0.3, "flip": True, "epochs": 10})
     trainer = Trainer(FC_data_set, ne)
-    print(ne)
     trainer.train(evaluate_every=50, save_every=100)
 
 if True:
@@ -260,11 +259,13 @@ if True:
                             distort={"crop": 0.5, "brightness": 0.3, "flip": True, "epochs": 10}, cut_early=True)
     trainer = Trainer(FC_data_set, ne)
     print(ne, repr(ne))
-    # rec.train()
-    trainer.export()
+    # trainer.train()
+    with tf.Session() as sess:
+        trainer.load_last_checkpoint(sess)
+        trainer.export()
 
 if False:
-    ne = HiddenLayersNetEnd([2048], learning_rate=1e-4, cut_early=2)
+    ne = HiddenLayersNetEnd([2048], learning_rate=1e-5, cut_early=2)
     trainer = Trainer(FC_data_set, ne)
     print(ne, repr(ne))
     trainer.train()
