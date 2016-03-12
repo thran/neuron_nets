@@ -4,7 +4,10 @@ import urllib.request
 from hashlib import sha1
 import tensorflow as tf
 import numpy as np
-from tensorflow.python.framework import tensor_shape
+from tensorflow.core.framework import graph_pb2, attr_value_pb2
+from tensorflow.python.client.graph_util import extract_sub_graph
+from tensorflow.python.framework import tensor_shape, tensor_util
+
 
 DATA_URL = 'http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz'
 GRAPH_DEF_PB = 'classify_image_graph_def.pb'
@@ -122,3 +125,37 @@ def represent(obj):
     for key in sorted(obj.keys()):
         parts.append("'{}': {}".format(key, represent(obj[key])))
     return "{" + ", ".join(parts) + "}"
+
+
+def convert_variables_to_constants(sess, input_graph_def, output_node_names):
+    variable_names = []
+    variable_dict_names = []
+    for node in input_graph_def.node:
+        if node.op == "Assign":
+            variable_name = node.input[0]
+            variable_dict_names.append(variable_name)
+            variable_names.append(variable_name + ":0")
+    returned_variables = sess.run(variable_names)
+    found_variables = dict(zip(variable_dict_names, returned_variables))
+    print("Frozen %d variables." % len(returned_variables))
+
+    inference_graph = extract_sub_graph(input_graph_def, output_node_names)
+
+    output_graph_def = graph_pb2.GraphDef()
+    how_many_converted = 0
+    for input_node in inference_graph.node:
+        output_node = graph_pb2.NodeDef()
+        if input_node.name in found_variables:
+            output_node.op = "Const"
+            output_node.name = input_node.name
+            dtype = input_node.attr["dtype"]
+            data = found_variables[input_node.name]
+            output_node.attr["dtype"].CopyFrom(dtype)
+            output_node.attr["value"].CopyFrom(attr_value_pb2.AttrValue(
+                tensor=tensor_util.make_tensor_proto(data, dtype=dtype.type, shape=data.shape)))
+            how_many_converted += 1
+        else:
+            output_node.CopyFrom(input_node)
+        output_graph_def.node.extend([output_node])
+    print("Converted %d variables to const ops." % how_many_converted)
+    return output_graph_def

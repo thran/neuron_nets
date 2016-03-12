@@ -240,8 +240,12 @@ class Trainer:
     def export(self):
         output_file = os.path.join(MODEL_DIR, str(self.ne) + ".pb")
         print(output_file)
+        with tf.Session() as sess:
+            sess.run(tf.initialize_all_variables())
+            graph_def = self.graph.as_graph_def()
+            graph_def = convert_variables_to_constants(sess, graph_def, ["final_result"])
         with gfile.FastGFile(output_file, 'wb') as f:
-            f.write(self.graph.as_graph_def().SerializeToString())
+            f.write(graph_def.SerializeToString())
 
 
 FC_data_set = FlowerCheckerDataSet()
