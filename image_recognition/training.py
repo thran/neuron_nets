@@ -237,13 +237,11 @@ class Trainer:
             i = 0
         return i
 
-    def export(self):
+    def export(self, sess):
         output_file = os.path.join(MODEL_DIR, str(self.ne) + ".pb")
         print(output_file)
-        with tf.Session() as sess:
-            sess.run(tf.initialize_all_variables())
-            graph_def = self.graph.as_graph_def()
-            graph_def = convert_variables_to_constants(sess, graph_def, ["final_result"])
+        graph_def = self.graph.as_graph_def()
+        graph_def = convert_variables_to_constants(sess, graph_def, ["final_result"])
         with gfile.FastGFile(output_file, 'wb') as f:
             f.write(graph_def.SerializeToString())
 
@@ -266,7 +264,7 @@ if True:
     # trainer.train()
     with tf.Session() as sess:
         trainer.load_last_checkpoint(sess)
-        trainer.export()
+        trainer.export(sess)
 
 if False:
     ne = HiddenLayersNetEnd([2048], learning_rate=1e-5, cut_early=2)
