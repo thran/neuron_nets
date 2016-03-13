@@ -65,8 +65,15 @@ class DataSet:
         self.test._labels = self._labels[validation_end_position:]
         self.test._identificators = self._identificators[validation_end_position:]
 
+        for subset in [self.train, self.validation, self.test]:
+            subset._classes = self._classes
+            subset.class_count = self.class_count
+
     def get_class(self, label):
-        return self._classes[label]
+        if type(label) == int:
+            return self._classes[label]
+        else:
+            return self._classes[np.argmax(label)]
 
     def get_batch(self, batch_size):
         if batch_size > self.size:
@@ -88,8 +95,20 @@ class DataSet:
         ds, ls, ids = self.get_batch(1)
         return ds[0], ls[0], ids[0]
 
+    def get_random(self):
+        position = np.random.choice(range(self.size))
+        return (
+            self._pre_process_sample(self._data[position]),
+            self._labels[position],
+            self._identificators[position]
+        )
+
     def get_all(self):
         return self._pre_process_samples(self._data), self._labels, self._identificators
+
+    def __iter__(self):
+        for _ in range(self.size):
+            yield self.get_one()
 
 
 class FlowerCheckerDataSet(DataSet):
