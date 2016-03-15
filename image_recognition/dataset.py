@@ -91,6 +91,9 @@ class DataSet:
             self._identificators[start:end]
         )
 
+    def export_classes(self, file_name):
+        json.dump(self._classes, open(file_name, "w"))
+
     def get_one(self):
         ds, ls, ids = self.get_batch(1)
         return ds[0], ls[0], ids[0]

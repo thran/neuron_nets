@@ -64,9 +64,10 @@ class Model:
 
 FC_data_set = FlowerCheckerDataSet()
 FC_data_set.prepare_data()
+# FC_data_set.export_classes("classes.json")
 
 model = Model("Hidden layers, hidden_neuron_counts:[2048], distort:{'brightness': 0.3, 'crop': 0.5, 'epochs': 10, 'flip': True}, cut_early:True.pb")
 # model.evaluate(FC_data_set.test)
 with tf.Session() as sess:
     model.show_random_images(sess, FC_data_set.test)
-    # model.identify_plant(sess, "/home/thran/real_kytka.jpg", FC_data_set)
+    # model.identify_plant(sess, "/home/thran/black_kytka.jpg", FC_data_set)
