@@ -18,6 +18,7 @@ class Model:
                 _ = tf.import_graph_def(graph_def, name='')
             self.graph = sess.graph
             self.result_tensor = self.graph.get_tensor_by_name('final_result:0')
+            self.raw_predictions_tensor = self.result_tensor.op.inputs[0]
             self.image_data_placeholder = self.graph.get_tensor_by_name(JPEG_DATA_TENSOR_NAME)
 
     def evaluate(self, data_set):
@@ -30,26 +31,33 @@ class Model:
             print()
             print("Accuracy: {:.2f}".format(hits / data_set.size * 100))
 
-    def predict(self, sess, image):
+    def predict(self, sess, image, with_raw_predictions=False):
+        if with_raw_predictions:
+            return sess.run([self.result_tensor, self.raw_predictions_tensor],
+                            feed_dict={self.image_data_placeholder: image, "Placeholder:0": 1})
         return sess.run(self.result_tensor, feed_dict={self.image_data_placeholder: image, "Placeholder:0": 1})
 
     def show_random_image(self, sess, data_set):
         np.random.seed()
         image, label, id = data_set.get_random()
-        prediction = self.predict(sess, image)
-        self.plot_image(image, prediction, data_set, label)
+        prediction, raw_prediction = self.predict(sess, image, True)
+        self.plot_image(image, prediction, data_set, raw_prediction, label)
 
-    def plot_image(self, image, prediction, data_set, true_label=None):
-        plt.subplot(2, 1, 1)
+    def plot_image(self, image, prediction, data_set, raw_prediction, true_label=None):
+        plt.subplot(3, 1, 1)
         plt.imshow(tf.image.decode_jpeg(image).eval())
         if true_label is not None:
             plt.title("{}".format(data_set.get_class(true_label)))
 
-        plt.subplot(2, 1, 2)
+        plt.subplot(3, 1, 2)
         plt.bar(range(data_set.class_count), prediction[0])
-        plt.title("{}".format(data_set.get_class(prediction)))
+        plt.title("{} - {:.1f}%".format(data_set.get_class(prediction), 100 + max(raw_prediction[0]) / 2))
         plt.xticks(np.arange(data_set.class_count) + 0.5,
                    [data_set.get_class(i) for i in range(data_set.class_count)], rotation=90)
+
+        plt.subplot(3, 1, 3)
+        plt.bar(range(data_set.class_count), raw_prediction[0])
+
         plt.show()
 
     def show_random_images(self, sess, data_set):
