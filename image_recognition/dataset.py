@@ -16,6 +16,7 @@ class DataSet:
         self._labels = None
         self._identificators = None
         self._position = 0
+        self._position_part = 0
         np.random.seed(seed)
 
     def prepare_data(self, validation_size=0.1, test_size=0.1):
@@ -24,11 +25,11 @@ class DataSet:
         self._split_data(validation_size=validation_size, test_size=test_size)
         self._position = 0
 
-    def _pre_process_samples(self, samples):
-        return [self._pre_process_sample(sample) for sample in samples]
+    def _pre_process_points(self, points):
+        return [self._pre_process_point(point) for point in points]
 
-    def _pre_process_sample(self, sample):
-        return sample
+    def _pre_process_point(self, point):
+        return point
 
     def _load_data(self):
         pass
@@ -86,7 +87,22 @@ class DataSet:
         start, end = self._position, self._position + batch_size
         self._position = end
         return (
-            self._pre_process_samples(self._data[start:end]),
+            self._pre_process_points(self._data[start:end]),
+            self._labels[start:end],
+            self._identificators[start:end]
+        )
+
+    def get_part(self, part_size):
+        if self._position_part == self.size - 1:
+            return None
+
+        if self._position_part + part_size >= self.size:
+            start, end = self._position, self.size - 1
+        else:
+            start, end = self._position, self._position_part + part_size
+        self._position_part = end
+        return (
+            self._pre_process_points(self._data[start:end]),
             self._labels[start:end],
             self._identificators[start:end]
         )
@@ -101,13 +117,13 @@ class DataSet:
     def get_random(self):
         position = np.random.choice(range(self.size))
         return (
-            self._pre_process_sample(self._data[position]),
+            self._pre_process_point(self._data[position]),
             self._labels[position],
             self._identificators[position]
         )
 
     def get_all(self):
-        return self._pre_process_samples(self._data), self._labels, self._identificators
+        return self._pre_process_points(self._data), self._labels, self._identificators
 
     def __iter__(self):
         for _ in range(self.size):
@@ -115,12 +131,13 @@ class DataSet:
 
 
 class FlowerCheckerDataSet(DataSet):
-    def __init__(self, dir_name="datasets/flowerchecker"):
+    def __init__(self, file_name="dataset.json", dir_name="datasets/flowerchecker"):
         super().__init__()
         self.dir_name = dir_name
+        self.file_name = file_name
 
     def _load_data(self):
-        data = json.load(open(os.path.join(self.dir_name, "images.json")))
+        data = json.load(open(os.path.join(self.dir_name, self.file_name)))
         self._classes = sorted(data.keys())
         self.class_count = len(self._classes)
 
@@ -129,17 +146,19 @@ class FlowerCheckerDataSet(DataSet):
         self._identificators = []
         self.size = 0
         for i, cls in enumerate(self._classes):
-            for image_name in data[cls]["images"]:
-                image_path = os.path.abspath(os.path.join(self.dir_name, "images", "{}.jpg".format(image_name)))
+            for point in data[cls]:
+                image_path = os.path.abspath(os.path.join(self.dir_name, "images", "{}.jpg".format(point["image"])))
+                meta = point
                 self._labels.append(i)
-                self._data.append(image_path)
+                self._data.append((image_path, meta))
                 self._identificators.append(hash_str(image_path))
                 self.size += 1
         self._labels = dense_to_one_hot(np.array(self._labels), num_classes=self.class_count)
         self._data = np.array(self._data)
         self._identificators = np.array(self._identificators)
 
-    def _pre_process_sample(self, sample):
-        return tf.gfile.FastGFile(sample, 'rb').read()
+    def _pre_process_point(self, point):
+        image_path, meta = point
+        return tf.gfile.FastGFile(image_path, 'rb').read(), meta
 
 
