@@ -2,6 +2,7 @@ import json
 import os
 import numpy as np
 import tensorflow as tf
+from collections import Counter
 
 from image_recognition.utils import hash_str, dense_to_one_hot
 
@@ -19,10 +20,12 @@ class DataSet:
         self._position_part = 0
         np.random.seed(seed)
 
-    def prepare_data(self, validation_size=0.1, test_size=0.1):
+    def prepare_data(self, validation_size=0.1, test_size=0.1, balanced_train=False):
         self._load_data()
         self._shuffle_data()
         self._split_data(validation_size=validation_size, test_size=test_size)
+        if balanced_train:
+            self.train._balance_data()
         self._position = 0
 
     def _pre_process_points(self, points):
@@ -128,6 +131,22 @@ class DataSet:
     def __iter__(self):
         for _ in range(self.size):
             yield self.get_one()
+
+    def _balance_data(self):
+        labels = np.argmax(self._labels, 1)
+        counts = Counter(labels)
+        max_count = max(counts.values())
+        indexes = np.arange(self.size)
+        new_indexes = []
+        for cls, count in counts.items():
+            wholes, rest = max_count // count, max_count - max_count // count * count
+            class_indexes = indexes[labels == cls]
+            new_indexes += list(class_indexes) * wholes + list(np.random.choice(class_indexes, rest, replace=False))
+        np.random.shuffle(new_indexes)
+        self._data = self._data[new_indexes]
+        self._labels = self._labels[new_indexes]
+        self._identificators = self._identificators[new_indexes]
+        self.size = len(self._data)
 
 
 class FlowerCheckerDataSet(DataSet):
