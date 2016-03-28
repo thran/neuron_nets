@@ -34,6 +34,7 @@ class NetEnd:
         self._learning_rate = learning_rate
         self._optimizer = optimizer if optimizer is not None else tf.train.AdamOptimizer
         self.cache_dir = CACHE_DIR
+        self.has_meta = False
 
         self.train_step = None
 
@@ -95,6 +96,9 @@ class NetEnd:
         return compute_bottlenecks(sess, [img for img, meta in data], identificators,
                                    self.image_data_placeholder, self.bottleneck_tensor, self.cache_dir)
 
+    def feed_meta(self, feed_dict, meta):
+        return feed_dict
+
 
 class SimpleNetEnd(NetEnd):
     name = "Simple"
@@ -138,14 +142,30 @@ class HiddenLayersNetEnd(NetEnd):
 class HiddenLayersMetaNetEnd(NetEnd):
     name = "Hidden layers with meta"
 
-    def __init__(self, hidden_neuron_counts=None, **kwargs):
+    def __init__(self, hidden_neuron_counts=None, hidden_meta_counts=None, **kwargs):
         super().__init__(**kwargs)
         self._hidden_neuron_counts = hidden_neuron_counts
+        self._hidden_meta_counts = hidden_meta_counts
+
+        self.has_meta = True
 
     def add_end(self):
-        last_count = self.bottleneck_tensor_size
-        layer = self.bottleneck_tensor
+        self.lat_placeholder = tf.placeholder(tf.float32, [None])
+        self.lng_placeholder = tf.placeholder(tf.float32, [None])
+        self.week_placeholder = tf.placeholder(tf.float32, [None])
+        lat_input = tf.reshape(self.lat_placeholder, (-1, 1)) / 90
+        lng_input = tf.reshape(self.lng_placeholder, (-1, 1)) / 180
+        week_input = tf.reshape(self.week_placeholder, (-1, 1)) / 25 - 1
+        layer_meta = tf.concat(1, [lat_input, lng_input, week_input])
+        last_meta_count = 3
+        for count in self._hidden_meta_counts:
+            layer_weights = tf.Variable(tf.truncated_normal([last_meta_count, count], stddev=0.001))
+            layer_biases = tf.Variable(tf.zeros([count]))
+            layer_meta = tf.nn.relu(tf.matmul(layer_meta, layer_weights) + layer_biases)
+            last_meta_count = count
 
+        last_count = self.bottleneck_tensor_size + last_meta_count
+        layer = tf.concat(1, [self.bottleneck_tensor, layer_meta])
         for count in self._hidden_neuron_counts:
             layer_weights = tf.Variable(tf.truncated_normal([last_count, count], stddev=0.001))
             layer_biases = tf.Variable(tf.zeros([count]))
@@ -158,6 +178,12 @@ class HiddenLayersMetaNetEnd(NetEnd):
         dropout = tf.nn.dropout(layer, self.keep_prob_placeholder)
         logits = tf.matmul(dropout, layer_weights) + layer_biases
         self.predictions = tf.nn.softmax(logits, name="final_result")
+
+    def feed_meta(self, feed_dict, data):
+        feed_dict[self.lat_placeholder] = [meta['lat'] for img, meta in data]
+        feed_dict[self.lng_placeholder] = [meta['lng'] for img, meta in data]
+        feed_dict[self.week_placeholder] = [meta['week'] for img, meta in data]
+        return feed_dict
 
 
 class Trainer:
@@ -177,11 +203,11 @@ class Trainer:
         ops = [self.ne.accuracy]
         if summaries is not None:
             ops.append(summaries)
-        results = sess.run(ops, feed_dict={
+        results = sess.run(ops, feed_dict=self.ne.feed_meta({
             self.ne.bottleneck_tensor: test_bottlenecks,
             self.ne.ground_truth_placeholder: data[1],
             self.ne.keep_prob_placeholder: 1,
-        })
+        }, data[0]))
         if print_string is not None:
             print("{} accuracy {:.3f}%".format(print_string, results[0] * 100))
         if summaries is not None:
@@ -212,11 +238,11 @@ class Trainer:
                 i += 1
                 batch = self.data_set.train.get_batch(batch_size)
                 bottlenecks = self.ne.get_bottlenecks(sess, batch)
-                self.ne.train_step.run(feed_dict={
+                self.ne.train_step.run(feed_dict=self.ne.feed_meta({
                     self.ne.bottleneck_tensor: bottlenecks,
                     self.ne.ground_truth_placeholder: batch[1],
                     self.ne.keep_prob_placeholder: 0.5,
-                })
+                }, batch[0]))
 
                 if i % evaluate_every == 0:
                     accuracy, summary_str = self.evaluate(sess, self.data_set.validation.get_all(), summaries=summaries)
@@ -250,12 +276,12 @@ class Trainer:
 
 
 FC_data_set = FlowerCheckerDataSet()
-FC_data_set.prepare_data(test_size=0)
+FC_data_set.prepare_data(test_size=0, balanced_train=False )
 
 if True:
     # ne = SimpleNetEnd(cut_early=True)
-    # ne = HiddenLayersNetEnd([2048], learning_rate=1e-4)
-    ne = HiddenLayersNetEnd([2048], learning_rate=1e-4)
+    ne = HiddenLayersNetEnd([2049], learning_rate=1e-4)
+    # ne = HiddenLayersMetaNetEnd([2048], [20], learning_rate=1e-4)
     trainer = Trainer(FC_data_set, ne)
     print(ne, repr(ne))
     # trainer.compute_bottlenecks(FC_data_set.validation)
