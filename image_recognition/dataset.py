@@ -15,7 +15,7 @@ class DataSet:
         self._classes = None
         self._data = None
         self._labels = None
-        self._identificators = None
+        self._identifiers = None
         self._position = 0
         self._position_part = 0
         np.random.seed(seed)
@@ -28,11 +28,17 @@ class DataSet:
             self.train._balance_data()
         self._position = 0
 
-    def _pre_process_points(self, points):
-        return [self._pre_process_point(point) for point in points]
+    def _pre_process_points(self, points, labels, identifiers):
+        ps, ls, ids = [], [], []
+        for point, label, identifier in zip(points, labels, identifiers):
+            p, l, i = self._pre_process_point(point, label, identifier)
+            ps.append(p)
+            ls.append(l)
+            ids.append(i)
+        return ps, ls, ids
 
-    def _pre_process_point(self, point):
-        return point
+    def _pre_process_point(self, point, label, identifier):
+        return point, label, identifier
 
     def _load_data(self):
         pass
@@ -42,7 +48,7 @@ class DataSet:
         np.random.shuffle(r)
         self._labels = self._labels[r]
         self._data = self._data[r]
-        self._identificators = self._identificators[r]
+        self._identifiers = self._identifiers[r]
 
     def _split_data(self, validation_size, test_size):
         validation_size = int(self.size * validation_size)
@@ -55,19 +61,19 @@ class DataSet:
         self.train.size = train_size
         self.train._data = self._data[0:train_end_position]
         self.train._labels = self._labels[0:train_end_position]
-        self.train._identificators = self._identificators[0:train_end_position]
+        self.train._identifiers = self._identifiers[0:train_end_position]
 
         self.validation = self.__class__()
         self.validation.size = validation_size
         self.validation._data = self._data[train_end_position:validation_end_position]
         self.validation._labels = self._labels[train_end_position:validation_end_position]
-        self.validation._identificators = self._identificators[train_end_position:validation_end_position]
+        self.validation._identifiers = self._identifiers[train_end_position:validation_end_position]
 
         self.test = self.__class__()
         self.test.size = test_size
         self.test._data = self._data[validation_end_position:]
         self.test._labels = self._labels[validation_end_position:]
-        self.test._identificators = self._identificators[validation_end_position:]
+        self.test._identifiers = self._identifiers[validation_end_position:]
 
         for subset in [self.train, self.validation, self.test]:
             subset._classes = self._classes
@@ -89,10 +95,10 @@ class DataSet:
             self.finished_epochs += 1
         start, end = self._position, self._position + batch_size
         self._position = end
-        return (
-            self._pre_process_points(self._data[start:end]),
+        return self._pre_process_points(
+            self._data[start:end],
             self._labels[start:end],
-            self._identificators[start:end]
+            self._identifiers[start:end]
         )
 
     def get_part(self, part_size):
@@ -100,14 +106,14 @@ class DataSet:
             return None
 
         if self._position_part + part_size >= self.size:
-            start, end = self._position, self.size - 1
+            start, end = self._position_part, self.size - 1
         else:
-            start, end = self._position, self._position_part + part_size
+            start, end = self._position_part, self._position_part + part_size
         self._position_part = end
-        return (
-            self._pre_process_points(self._data[start:end]),
+        return self._pre_process_points(
+            self._data[start:end],
             self._labels[start:end],
-            self._identificators[start:end]
+            self._identifiers[start:end]
         )
 
     def export_classes(self, file_name):
@@ -119,14 +125,14 @@ class DataSet:
 
     def get_random(self):
         position = np.random.choice(range(self.size))
-        return (
-            self._pre_process_point(self._data[position]),
+        return self._pre_process_points(
+            self._data[position],
             self._labels[position],
-            self._identificators[position]
+            self._identifiers[position]
         )
 
     def get_all(self):
-        return self._pre_process_points(self._data), self._labels, self._identificators
+        return self._pre_process_points(self._data, self._labels, self._identifiers)
 
     def __iter__(self):
         for _ in range(self.size):
@@ -145,15 +151,16 @@ class DataSet:
         np.random.shuffle(new_indexes)
         self._data = self._data[new_indexes]
         self._labels = self._labels[new_indexes]
-        self._identificators = self._identificators[new_indexes]
+        self._identifiers = self._identifiers[new_indexes]
         self.size = len(self._data)
 
 
 class FlowerCheckerDataSet(DataSet):
-    def __init__(self, file_name="dataset.json", dir_name="datasets/flowerchecker"):
+    def __init__(self, file_name="dataset.json", dir_name="datasets/flowerchecker", distortions=0):
         super().__init__()
         self.dir_name = dir_name
         self.file_name = file_name
+        self._distortions = distortions
 
     def _load_data(self):
         data = json.load(open(os.path.join(self.dir_name, self.file_name)))
@@ -162,7 +169,7 @@ class FlowerCheckerDataSet(DataSet):
 
         self._labels = []
         self._data = []
-        self._identificators = []
+        self._identifiers = []
         self.size = 0
         for i, cls in enumerate(self._classes):
             for point in data[cls]:
@@ -170,14 +177,20 @@ class FlowerCheckerDataSet(DataSet):
                 meta = point
                 self._labels.append(i)
                 self._data.append((image_path, meta))
-                self._identificators.append(hash_str(image_path))
+                self._identifiers.append(hash_str(image_path))
                 self.size += 1
         self._labels = dense_to_one_hot(np.array(self._labels), num_classes=self.class_count)
         self._data = np.array(self._data)
-        self._identificators = np.array(self._identificators)
+        self._identifiers = np.array(self._identifiers)
 
-    def _pre_process_point(self, point):
+    def _pre_process_point(self, point, label, identifier):
         image_path, meta = point
-        return tf.gfile.FastGFile(image_path, 'rb').read(), meta
+        dist_number = self.finished_epochs % (self._distortions + 1)
+        if dist_number == 0:
+            return (tf.gfile.FastGFile(image_path, 'rb').read(), meta), label, identifier
+        meta["distorted"] = dist_number
+        return (tf.gfile.FastGFile(image_path, 'rb').read(), meta), label, identifier + "-" + str(dist_number)
 
-
+    def _split_data(self, validation_size, test_size):
+        super()._split_data(validation_size, test_size)
+        self.train._distortions = self._distortions

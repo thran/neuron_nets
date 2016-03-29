@@ -45,6 +45,8 @@ class NetEnd:
         self.class_count = class_count
         self.add_end()
         self.add_train_step()
+        self.distorted_image_tensor = add_input_distortions(self.image_data_placeholder, INPUT_HEIGHT, INPUT_WIDTH, 3,
+                                                            min_crop=0.5, random_brightness=0.5, flip_left_right=True)
 
     def add_end(self):
         pass
@@ -68,8 +70,9 @@ class NetEnd:
         (args, _, _, defaults) = inspect.getargspec(self.__init__)
         if not defaults:
             args, defaults = tuple(), tuple()
-        s += "".join([", {}:{}".format(a, represent(getattr(self, "_" + a))) for a, d in zip(args[-len(defaults):], defaults)
-                      if getattr(self, "_" + a) != d])
+        s += "".join(
+            [", {}:{}".format(a, represent(getattr(self, "_" + a))) for a, d in zip(args[-len(defaults):], defaults)
+             if getattr(self, "_" + a) != d])
         return s
 
     def __repr__(self):
@@ -93,11 +96,20 @@ class NetEnd:
 
     def get_bottlenecks(self, sess, data, evaluation=False):
         data, labels, identificators = data
+        if "distorted" in data[0][1]:
+            return compute_bottlenecks(sess, [img for img, meta in data], identificators, self.resized_image_data_placeholder,
+                                       self.bottleneck_tensor, self.cache_dir, prepare_function=self.distort_images)
         return compute_bottlenecks(sess, [img for img, meta in data], identificators,
                                    self.image_data_placeholder, self.bottleneck_tensor, self.cache_dir)
 
     def feed_meta(self, feed_dict, meta):
         return feed_dict
+
+    def distort_images(self, sess, images):
+        distorted = []
+        for image in images:
+            distorted.append(sess.run(self.distorted_image_tensor, feed_dict={self.image_data_placeholder: image}))
+        return distorted
 
 
 class SimpleNetEnd(NetEnd):
@@ -229,7 +241,7 @@ class Trainer:
             writer = tf.train.SummaryWriter(self.tensor_board_path, sess.graph_def, flush_secs=30)
             summaries = tf.merge_all_summaries()
 
-            saver = tf.train.Saver()
+            saver = tf.train.Saver(max_to_keep=2)
             i = self.load_last_checkpoint(sess, checkpoint, saver)
             if i == 0:
                 sess.run(tf.initialize_all_variables())
@@ -274,17 +286,23 @@ class Trainer:
         with gfile.FastGFile(output_file, 'wb') as f:
             f.write(graph_def.SerializeToString())
 
-
-FC_data_set = FlowerCheckerDataSet()
-FC_data_set.prepare_data(test_size=0, balanced_train=False )
+distortions = 10
+FC_data_set = FlowerCheckerDataSet(distortions=distortions)
+FC_data_set.prepare_data(test_size=0, balanced_train=False)
 
 if True:
     # ne = SimpleNetEnd(cut_early=True)
-    ne = HiddenLayersNetEnd([2049], learning_rate=1e-4)
-    # ne = HiddenLayersMetaNetEnd([2048], [20], learning_rate=1e-4)
+    # ne = HiddenLayersNetEnd([2048], learning_rate=1e-4)
+    ne = HiddenLayersMetaNetEnd([2048], [20], learning_rate=1e-4)
     trainer = Trainer(FC_data_set, ne)
     print(ne, repr(ne))
-    # trainer.compute_bottlenecks(FC_data_set.validation)
+    # trainer.compute_bottlene  cks(FC_data_set.validation)
+    if False:
+        for i in range(1, distortions + 1):
+            print(i)
+            FC_data_set.train.finished_epochs = i
+            trainer.compute_bottlenecks(FC_data_set.train)
+            FC_data_set.train._position_part = 0
     trainer.train()
     # with tf.Session() as sess:
     #     trainer.load_last_checkpoint(sess)
