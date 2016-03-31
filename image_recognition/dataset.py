@@ -125,7 +125,7 @@ class DataSet:
 
     def get_random(self):
         position = np.random.choice(range(self.size))
-        return self._pre_process_points(
+        return self._pre_process_point(
             self._data[position],
             self._labels[position],
             self._identifiers[position]
