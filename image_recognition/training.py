@@ -152,7 +152,7 @@ class HiddenLayersNetEnd(NetEnd):
 
 
 class HiddenLayersMetaNetEnd(NetEnd):
-    name = "Hidden layers with meta"
+    name = "Hidden layers with meta 2.0"
 
     def __init__(self, hidden_neuron_counts=None, hidden_meta_counts=None, **kwargs):
         super().__init__(**kwargs)
@@ -162,9 +162,9 @@ class HiddenLayersMetaNetEnd(NetEnd):
         self.has_meta = True
 
     def add_end(self):
-        self.lat_placeholder = tf.placeholder(tf.float32, [None])
-        self.lng_placeholder = tf.placeholder(tf.float32, [None])
-        self.week_placeholder = tf.placeholder(tf.float32, [None])
+        self.lat_placeholder = tf.placeholder(tf.float32, [None], name='lat_placeholder')
+        self.lng_placeholder = tf.placeholder(tf.float32, [None], name='lng_placeholder')
+        self.week_placeholder = tf.placeholder(tf.float32, [None], name='week_placeholder')
         lat_input = tf.reshape(self.lat_placeholder, (-1, 1)) / 90
         lng_input = tf.reshape(self.lng_placeholder, (-1, 1)) / 180
         week_input = tf.reshape(self.week_placeholder, (-1, 1)) / 25 - 1
@@ -173,16 +173,19 @@ class HiddenLayersMetaNetEnd(NetEnd):
         for count in self._hidden_meta_counts:
             layer_weights = tf.Variable(tf.truncated_normal([last_meta_count, count], stddev=0.001))
             layer_biases = tf.Variable(tf.zeros([count]))
-            layer_meta = tf.nn.relu(tf.matmul(layer_meta, layer_weights) + layer_biases)
+            self.layer_meta = layer_meta = tf.nn.relu(tf.matmul(layer_meta, layer_weights) + layer_biases)
             last_meta_count = count
 
-        last_count = self.bottleneck_tensor_size + last_meta_count
-        layer = tf.concat(1, [self.bottleneck_tensor, layer_meta])
-        for count in self._hidden_neuron_counts:
+        last_count = self.bottleneck_tensor_size
+        layer = self.bottleneck_tensor
+        for i, count in enumerate(self._hidden_neuron_counts):
             layer_weights = tf.Variable(tf.truncated_normal([last_count, count], stddev=0.001))
             layer_biases = tf.Variable(tf.zeros([count]))
             layer = tf.nn.relu(tf.matmul(layer, layer_weights) + layer_biases)
             last_count = count
+            if i == 0:
+                last_count = last_count + last_meta_count
+                layer = tf.concat(1, [layer, layer_meta])
 
         layer_weights = tf.Variable(tf.truncated_normal([last_count, self.class_count], stddev=0.001))
         layer_biases = tf.Variable(tf.zeros([self.class_count]))
@@ -192,9 +195,9 @@ class HiddenLayersMetaNetEnd(NetEnd):
         self.predictions = tf.nn.softmax(logits, name="final_result")
 
     def feed_meta(self, feed_dict, data):
-        feed_dict[self.lat_placeholder] = [meta['lat'] for img, meta in data]
-        feed_dict[self.lng_placeholder] = [meta['lng'] for img, meta in data]
-        feed_dict[self.week_placeholder] = [meta['week'] for img, meta in data]
+        feed_dict[self.lat_placeholder] = [const_for_none(meta['lat']) for img, meta in data]
+        feed_dict[self.lng_placeholder] = [const_for_none(meta['lng']) for img, meta in data]
+        feed_dict[self.week_placeholder] = [const_for_none(meta['week']) for img, meta in data]
         return feed_dict
 
 
@@ -236,7 +239,7 @@ class Trainer:
                 data = data_set.get_part(10000)
             del data
 
-    def train(self, batch_size=50, evaluate_every=200, save_every=5000, checkpoint=None):
+    def train(self, batch_size=5, evaluate_every=2000, save_every=5000, checkpoint=None):
         with tf.Session() as sess:
             writer = tf.train.SummaryWriter(self.tensor_board_path, sess.graph_def, flush_secs=30)
             summaries = tf.merge_all_summaries()
@@ -293,11 +296,10 @@ FC_data_set.prepare_data(test_size=0, balanced_train=False)
 if True:
     # ne = SimpleNetEnd(cut_early=True)
     # ne = HiddenLayersNetEnd([2048], learning_rate=1e-4)
-    ne = HiddenLayersMetaNetEnd([2048], [20], learning_rate=1e-4)
+    ne = HiddenLayersMetaNetEnd([2048, 1024], [50, 50], learning_rate=1e-4)
     trainer = Trainer(FC_data_set, ne)
     print(ne, repr(ne))
-    # trainer.compute_bottlene  cks(FC_data_set.validation)
-    if False:
+    if False:   
         for i in range(1, distortions + 1):
             print(i)
             FC_data_set.train.finished_epochs = i

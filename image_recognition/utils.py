@@ -159,3 +159,7 @@ def convert_variables_to_constants(sess, input_graph_def, output_node_names):
         output_graph_def.node.extend([output_node])
     print("Converted %d variables to const ops." % how_many_converted)
     return output_graph_def
+
+
+def const_for_none(x, const=0):
+    return const if x is None else x
