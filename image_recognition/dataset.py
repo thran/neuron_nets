@@ -13,9 +13,9 @@ class DataSet:
         self.class_count = 0
         self.size, self.size_train, self.size_test, self.size_validation = 0, 0, 0, 0
         self._classes = None
-        self._data = None
-        self._labels = None
-        self._identifiers = None
+        self._labels = []
+        self._data = []
+        self._identifiers = []
         self._position = 0
         self._position_part = 0
         np.random.seed(seed)
@@ -167,9 +167,6 @@ class FlowerCheckerDataSet(DataSet):
         self._classes = sorted(data.keys())
         self.class_count = len(self._classes)
 
-        self._labels = []
-        self._data = []
-        self._identifiers = []
         self.size = 0
         for i, cls in enumerate(self._classes):
             for point in data[cls]:
@@ -194,3 +191,28 @@ class FlowerCheckerDataSet(DataSet):
     def _split_data(self, validation_size, test_size):
         super()._split_data(validation_size, test_size)
         self.train._distortions = self._distortions
+
+
+class CertaintyDataSet(DataSet):
+    def __init__(self, file_name="datasets/results.json"):
+        super().__init__()
+        self.file_name = file_name
+
+    def _load_data(self):
+        data = json.load(open(self.file_name))
+        self.size = 0
+        for point in data:
+            predicted = np.argmax(point['raw'])
+            self._labels.append([
+                point["label"] == predicted,
+                point["label"] in np.argsort(point['raw'])[-3:],
+                point["label"] in np.argsort(point['raw'])[-5:],
+                point['softmax'][point["label"]] > 0.05,
+            ])
+            self._data.append(sorted(point['raw']))
+            self._identifiers.append(point["identifier"])
+            self.size += 1
+
+        self._labels = np.array(self._labels)
+        self._data = np.array(self._data)
+        self._identifiers = np.array(self._identifiers)

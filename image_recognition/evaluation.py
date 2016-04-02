@@ -2,6 +2,7 @@ import json
 from collections import defaultdict
 import os
 import tensorflow as tf
+import tfdeploy as td
 import numpy as np
 from json import encoder
 
@@ -17,7 +18,7 @@ LNG_TENSOR_NAME = 'lng_placeholder:0'
 WEEK_TENSOR_NAME = 'week_placeholder:0'
 
 
-def plot_image(point, prediction, data_set, raw_prediction, true_label=None):
+def plot_image(point, prediction, data_set, raw_prediction, true_label=None, certainties=None):
     image, meta = point
     plt.subplot(1, 3, 1)
     plt.imshow(tf.image.decode_jpeg(image).eval())
@@ -28,18 +29,29 @@ def plot_image(point, prediction, data_set, raw_prediction, true_label=None):
     count = 10
     best = prediction[0].argsort()[-count:][::-1]
     plt.bar(range(count), prediction[0][best])
-    plt.title("{} - {:.1f}%".format(data_set.get_class(prediction), 100 + max(raw_prediction[0]) / 2))
+    plt.title("{} - {:.1f}%".format(data_set.get_class(prediction), 100 * certainties[0]))
     plt.xticks(np.arange(count) + 0.5,
                [data_set.get_class(int(i)) for i in best], rotation=90)
 
     plt.subplot(1, 3, 3)
+    plt.title(certainties)
     sns.distplot(raw_prediction[0], rug=True)
 
     plt.show()
 
 
+class CertaintyModel:
+    def __init__(self):
+        self.model = td.Model(os.path.join(MODEL_DIR, "certainty_model.pkl"))
+        self.input, self.output = self.model.get("row_predictions", "output/certainties")
+
+    def get_certainty(self, input):
+        return self.output.eval({self.input: sorted(input[0])})
+
+
 class Model:
     def __init__(self, model_name):
+        self.certainty_model = CertaintyModel()
         with tf.Session() as sess:
             model_filename = os.path.join(MODEL_DIR, model_name)
             with tf.gfile.FastGFile(model_filename, 'rb') as f:
@@ -74,15 +86,15 @@ class Model:
             "Placeholder:0": 1,
         }
         if with_raw_predictions:
-            return sess.run([self.result_tensor, self.raw_predictions_tensor],
-                            feed_dict=feed_dict)
+            results, raw_results = sess.run([self.result_tensor, self.raw_predictions_tensor], feed_dict=feed_dict)
+            return results, raw_results, self.certainty_model.get_certainty(raw_results)
         return sess.run(self.result_tensor, feed_dict=feed_dict)
 
     def show_random_image(self, sess, data_set):
         np.random.seed()
         point, label, id = data_set.get_random()
-        prediction, raw_prediction = self.predict(sess, point, True)
-        plot_image(point, prediction, data_set, raw_prediction, label)
+        prediction, raw_prediction, certainties = self.predict(sess, point, True)
+        plot_image(point, prediction, data_set, raw_prediction, label, certainties)
 
     def show_random_images(self, sess, data_set):
         while True:
@@ -93,18 +105,20 @@ class Model:
         jpeq_file_name, meta = data
         image = tf.gfile.FastGFile(jpeq_file_name, 'rb').read()
         prediction = self.predict(sess, (image, meta), with_raw_predictions=True)
-        plot_image((image, meta), prediction[0], data_set, prediction[1])
+        plot_image((image, meta), prediction[0], data_set, prediction[1], prediction[2])
 
     def save_all_results(self, data_set):
-        results = {}
+        results = []
         with tf.Session() as sess:
             for i, (image, label, identifier) in enumerate(data_set):
                 print('\r>> Evaluating {} from {} {:.1f}%'.format(i + 1, data_set.size, (i + 1) / data_set.size * 100), end="")
-                softmax, raw_predictions = self.predict(sess, image, with_raw_predictions=True)
-                results[identifier] = {
+                softmax, raw_predictions, certainties = self.predict(sess, image, with_raw_predictions=True)
+                results.append({
                     "softmax": list(map(float, list(softmax[0]))),
                     "raw": list(map(float, list(raw_predictions[0]))),
-                }
+                    "identifier": identifier,
+                    "label": int(np.argmax(label)),
+                })
         json.dump(results, open("results.json", "w"))
 
 FC_data_set = FlowerCheckerDataSet()
@@ -115,6 +129,7 @@ FC_data_set.prepare_data(test_size=0)
 model = Model("Hidden layers with meta, hidden_neuron_counts:[2048], hidden_meta_counts:[20].pb")
 # model.evaluate(FC_data_set.test)
 # model.save_all_results(FC_data_set.validation)
+
 with tf.Session() as sess:
     model.show_random_images(sess, FC_data_set.validation)
-    # model.identify_plant(sess, ("/home/thran/kytka.jpg", defaultdict(lambda: 0)), FC_data_set)
+#     model.identify_plant(sess, ("/home/thran/kytka.jpg", defaultdict(lambda: 0)), FC_data_set)

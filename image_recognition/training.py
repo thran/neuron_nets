@@ -239,7 +239,7 @@ class Trainer:
                 data = data_set.get_part(10000)
             del data
 
-    def train(self, batch_size=5, evaluate_every=2000, save_every=5000, checkpoint=None):
+    def train(self, batch_size=50, evaluate_every=200, save_every=5000, checkpoint=None):
         with tf.Session() as sess:
             writer = tf.train.SummaryWriter(self.tensor_board_path, sess.graph_def, flush_secs=30)
             summaries = tf.merge_all_summaries()
@@ -296,7 +296,7 @@ FC_data_set.prepare_data(test_size=0, balanced_train=False)
 if True:
     # ne = SimpleNetEnd(cut_early=True)
     # ne = HiddenLayersNetEnd([2048], learning_rate=1e-4)
-    ne = HiddenLayersMetaNetEnd([2048, 1024], [50, 50], learning_rate=1e-4)
+    ne = HiddenLayersMetaNetEnd([2048], [50, 50], learning_rate=1e-4)
     trainer = Trainer(FC_data_set, ne)
     print(ne, repr(ne))
     if False:   
