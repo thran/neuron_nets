@@ -73,7 +73,10 @@ def compute_bottlenecks(sess, data, identificators, feed_placeholder, bottleneck
                       .format("data", i + 1, iterations, (i + 1) / iterations * 100.0), end="")
                 if prepare_function:
                     image = prepare_function(sess, [image])[0]
-                bottleneck_values = sess.run(bottleneck_tensor, feed_dict={feed_placeholder: image})[0]
+                try:
+                    bottleneck_values = sess.run(bottleneck_tensor, feed_dict={feed_placeholder: image})[0]
+                except:
+                    print(name)
                 np.save(cache_filename, bottleneck_values)
         bottlenecks_values.append(bottleneck_values)
     if computed:

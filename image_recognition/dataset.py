@@ -175,6 +175,8 @@ class FlowerCheckerDataSet(DataSet):
                 self._labels.append(i)
                 self._data.append((image_path, meta))
                 self._identifiers.append(hash_str(image_path))
+                # if 'e49aaf2f652739dde4c6' == hash_str(image_path):
+                #     print(image_path)
                 self.size += 1
         self._labels = dense_to_one_hot(np.array(self._labels), num_classes=self.class_count)
         self._data = np.array(self._data)
@@ -216,3 +218,6 @@ class CertaintyDataSet(DataSet):
         self._labels = np.array(self._labels)
         self._data = np.array(self._data)
         self._identifiers = np.array(self._identifiers)
+
+# FC_data_set = FlowerCheckerDataSet(file_name="dataset-big.json")
+# FC_data_set.prepare_data()

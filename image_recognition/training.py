@@ -62,6 +62,8 @@ class NetEnd:
         self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
         tf.scalar_summary("accuracy", self.accuracy)
         tf.scalar_summary("top3", in_top_k(self.predictions, labels, 3))
+        tf.scalar_summary("top5", in_top_k(self.predictions, labels, 5))
+        tf.scalar_summary("top10", in_top_k(self.predictions, labels, 10))
 
     def __str__(self):
         if self.name == "Abstract Net end":
@@ -154,10 +156,11 @@ class HiddenLayersNetEnd(NetEnd):
 class HiddenLayersMetaNetEnd(NetEnd):
     name = "Hidden layers with meta 2.0"
 
-    def __init__(self, hidden_neuron_counts=None, hidden_meta_counts=None, **kwargs):
+    def __init__(self, hidden_neuron_counts=None, hidden_meta_counts=None, v="", **kwargs):
         super().__init__(**kwargs)
         self._hidden_neuron_counts = hidden_neuron_counts
         self._hidden_meta_counts = hidden_meta_counts
+        self._v = v
 
         self.has_meta = True
 
@@ -289,18 +292,19 @@ class Trainer:
         with gfile.FastGFile(output_file, 'wb') as f:
             f.write(graph_def.SerializeToString())
 
-distortions = 10
-FC_data_set = FlowerCheckerDataSet(distortions=distortions)
+distortions = 0
+# FC_data_set = FlowerCheckerDataSet(distortions=distortions)
+FC_data_set = FlowerCheckerDataSet(file_name="dataset-big.json", distortions=distortions)
 FC_data_set.prepare_data(test_size=0, balanced_train=False)
 
 if True:
     # ne = SimpleNetEnd(cut_early=True)
     # ne = HiddenLayersNetEnd([2048], learning_rate=1e-4)
-    ne = HiddenLayersMetaNetEnd([2048], [50, 50], learning_rate=1e-4)
+    ne = HiddenLayersMetaNetEnd([2048], [50, 50], learning_rate=1e-4, v="big")
     trainer = Trainer(FC_data_set, ne)
     print(ne, repr(ne))
-    if False:   
-        for i in range(1, distortions + 1):
+    if False:
+        for i in range(0, distortions + 1):
             print(i)
             FC_data_set.train.finished_epochs = i
             trainer.compute_bottlenecks(FC_data_set.train)
