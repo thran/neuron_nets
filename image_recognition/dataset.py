@@ -164,23 +164,26 @@ class FlowerCheckerDataSet(DataSet):
 
     def _load_data(self):
         data = json.load(open(os.path.join(self.dir_name, self.file_name)))
-        self._classes = sorted(data.keys())
-        self.class_count = len(self._classes)
+        data = self._prepare_classes(data)
 
         self.size = 0
-        for i, cls in enumerate(self._classes):
-            for point in data[cls]:
+        for i, cls in enumerate(self._classes + [None]):
+            points = data[cls] if cls is not None else sum([v for k, v in data.items() if v not in self._classes], [])
+            for point in points:
                 image_path = os.path.abspath(os.path.join(self.dir_name, "images", "{}.jpg".format(point["image"])))
                 meta = point
-                self._labels.append(i)
+                self._labels.append(i if cls is not None else None)
                 self._data.append((image_path, meta))
                 self._identifiers.append(hash_str(image_path))
-                # if 'e49aaf2f652739dde4c6' == hash_str(image_path):
-                #     print(image_path)
                 self.size += 1
         self._labels = dense_to_one_hot(np.array(self._labels), num_classes=self.class_count)
         self._data = np.array(self._data)
         self._identifiers = np.array(self._identifiers)
+
+    def _prepare_classes(self, data):
+        self._classes = sorted(data.keys())
+        self.class_count = len(self._classes)
+        return data
 
     def _pre_process_point(self, point, label, identifier):
         image_path, meta = point
@@ -196,7 +199,7 @@ class FlowerCheckerDataSet(DataSet):
 
 
 class CertaintyDataSet(DataSet):
-    def __init__(self, file_name="datasets/results.json"):
+    def __init__(self, file_name="datasets/results-real.json"):
         super().__init__()
         self.file_name = file_name
 
@@ -204,13 +207,14 @@ class CertaintyDataSet(DataSet):
         data = json.load(open(self.file_name))
         self.size = 0
         for point in data:
-            predicted = np.argmax(point['raw'])
             self._labels.append([
-                point["label"] == predicted,
+                point["label"] == np.argsort(point['raw'])[-1],
+                point["label"] == np.argsort(point['raw'])[-2],
+                point["label"] == np.argsort(point['raw'])[-3],
                 point["label"] in np.argsort(point['raw'])[-3:],
                 point["label"] in np.argsort(point['raw'])[-5:],
                 point['softmax'][point["label"]] > 0.05,
-            ])
+            ] if point["label"] is not None else [False] * 6)
             self._data.append(sorted(point['raw']))
             self._identifiers.append(point["identifier"])
             self.size += 1

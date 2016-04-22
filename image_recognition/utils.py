@@ -89,10 +89,13 @@ def in_top_k(predictions, labels, k):
 
 
 def dense_to_one_hot(labels, num_classes):
+    nans = np.array([x is None for x in labels])
+    labels[nans] = 0
     num_labels = labels.shape[0]
     index_offset = np.arange(num_labels) * num_classes
     labels_one_hot = np.zeros((num_labels, num_classes))
-    labels_one_hot.flat[index_offset + labels.ravel()] = 1
+    labels_one_hot.flat[list(index_offset + labels.ravel())] = 1
+    labels_one_hot[nans, 0] = 0
     return labels_one_hot
 
 

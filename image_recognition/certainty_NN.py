@@ -84,7 +84,7 @@ class CertaintyNN:
             self.keep_prob: 1,
         })
 
-        for i in range(4):
+        for i in [0, 1, 2, 3, 4]:
             plt.figure()
             plt.subplot(311)
             for output, raws, truth in zip(outputs, data[0], data[1]):
@@ -112,5 +112,5 @@ data_set.prepare_data(test_size=0)
 nn = CertaintyNN(input_size=len(data_set._data[0]), output_size=len(data_set._labels[0]))
 with tf.Session() as sess:
     nn.train(sess, data_set)
-    # nn.evaluate(sess, data_set.validation)
+    nn.evaluate(sess, data_set.validation)
     nn.save(sess)

@@ -18,6 +18,21 @@ LNG_TENSOR_NAME = 'lng_placeholder:0'
 WEEK_TENSOR_NAME = 'week_placeholder:0'
 
 
+class CustomFlowerCheckerDataSet(FlowerCheckerDataSet):
+    def _prepare_classes(self, data):
+        fc = FlowerCheckerDataSet(distortions=0)
+        fc.prepare_data()
+        self._classes = fc._classes
+        self.class_count = len(self._classes)
+
+        new_data = defaultdict(lambda: [])
+        for cls, plaints in data.items():
+            cls = cls.split(" ")[0]
+            cls = cls if cls in self._classes else ""
+            new_data[cls] += plaints
+        return new_data
+
+
 def plot_image(point, prediction, data_set, raw_prediction, true_label=None, certainties=None):
     image, meta = point
     plt.subplot(1, 3, 1)
@@ -72,7 +87,8 @@ class Model:
             for i, (image, label, _) in enumerate(data_set):
                 print('\r>> Evaluating {} from {} {:.1f}%'.format(i + 1, data_set.size, (i + 1) / data_set.size * 100), end="")
                 result = self.predict(sess, image)
-                hits += 1 if np.argmax(result) == np.argmax(label) else 0
+                if sum(label) > 0:
+                    hits += 1 if np.argmax(result) == np.argmax(label) else 0
             print()
             print("Accuracy: {:.2f}".format(hits / data_set.size * 100))
 
@@ -117,19 +133,20 @@ class Model:
                     "softmax": list(map(float, list(softmax[0]))),
                     "raw": list(map(float, list(raw_predictions[0]))),
                     "identifier": identifier,
-                    "label": int(np.argmax(label)),
+                    "label": int(np.argmax(label)) if sum(label) > 0 else None,
                 })
-        json.dump(results, open("results.json", "w"))
+        json.dump(results, open("results-real.json", "w"))
 
-FC_data_set = FlowerCheckerDataSet()
-FC_data_set.prepare_data(test_size=0)
+# FC_data_set = FlowerCheckerDataSet()
+FC_data_set = CustomFlowerCheckerDataSet(file_name="real_dataset.json"  )
+FC_data_set.prepare_data(validation_size=0.1, test_size=0)
 # FC_data_set.export_classes("classes.json")
 
 # model = Model("Hidden layers, hidden_neuron_counts:[2048], distort:{'brightness': 0.3, 'crop': 0.5, 'epochs': 10, 'flip': True}, cut_early:True.pb")
-model = Model("Hidden layers with meta, hidden_neuron_counts:[2048], hidden_meta_counts:[20].pb")
-# model.evaluate(FC_data_set.test)
-# model.save_all_results(FC_data_set.validation)
+model = Model("Hidden layers with meta, hidden_neuron_counts:[2048], hidden_meta_counts:[50, 50].pb")
+# model.evaluate(FC_data_set.validation)
+model.save_all_results(FC_data_set.validation)
 
-with tf.Session() as sess:
-    model.show_random_images(sess, FC_data_set.validation)
+# with tf.Session() as sess:
+#     model.show_random_images(sess, FC_data_set.validation)
 #     model.identify_plant(sess, ("/home/thran/kytka.jpg", defaultdict(lambda: 0)), FC_data_set)
