@@ -2,15 +2,15 @@ import inspect
 
 from tensorflow.python.platform import gfile
 
-from image_recognition.dataset import FlowerCheckerDataSet
-from image_recognition.utils import *
+from image_recognition.old_version.dataset import FlowerCheckerDataSet
+from image_recognition.old_version.utils import *
 
-TENSOR_BOARD_DIR = "../tenzor_board"
+TENSOR_BOARD_DIR = "../../tenzor_board"
 CACHE_DIR = "/home/thran/projects/cache"
 JPEG_DATA_TENSOR_NAME = 'DecodeJpeg/contents:0'
 RESIZED_INPUT_TENSOR_NAME = 'ResizeBilinear:0'
 INPUT_HEIGHT, INPUT_WIDTH = 299, 299
-MODEL_DIR = "models"
+MODEL_DIR = "../models"
 
 CUT_TENSOR_NAME = 'mixed_9/join:0'
 
@@ -82,6 +82,7 @@ class NetEnd:
 
     def prepare_tensors(self):
         self.image_data_placeholder = self.graph.get_tensor_by_name(JPEG_DATA_TENSOR_NAME)
+        print(self.image_data_placeholder)
         self.resized_image_data_placeholder = self.graph.get_tensor_by_name(RESIZED_INPUT_TENSOR_NAME)
         self.keep_prob_placeholder = tf.placeholder("float")
         self.ground_truth_placeholder = tf.placeholder(tf.float32, [None, self.class_count])
@@ -294,7 +295,7 @@ class Trainer:
 
 distortions = 0
 # FC_data_set = FlowerCheckerDataSet(distortions=distortions)
-FC_data_set = FlowerCheckerDataSet(file_name="dataset-big.json", distortions=distortions)
+FC_data_set = FlowerCheckerDataSet(file_name="dataset-big.json", dir_name="../datasets/flowerchecker", distortions=distortions)
 FC_data_set.prepare_data(test_size=0, balanced_train=False)
 
 if True:
@@ -309,7 +310,7 @@ if True:
             FC_data_set.train.finished_epochs = i
             trainer.compute_bottlenecks(FC_data_set.train)
             FC_data_set.train._position_part = 0
-    trainer.train()
+    # trainer.train()
     # with tf.Session() as sess:
     #     trainer.load_last_checkpoint(sess)
     #     trainer.export(sess)
