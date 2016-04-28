@@ -114,6 +114,14 @@ class DataSet:
             self._identifiers[start:end]
         )
 
+    def iter_per_part(self, part_size):
+        self._position_part = 0
+        while True:
+            part = self.get_part(part_size=part_size)
+            if part is None:
+                break
+            yield part
+
     def export_classes(self, file_name):
         json.dump(self._classes, open(file_name, "w"))
 
