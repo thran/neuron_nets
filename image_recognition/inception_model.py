@@ -1,15 +1,12 @@
 import os
 
-import numpy as np
-import re
 import tensorflow as tf
 import inception.inception_model as inception
-from image_recognition.utils import in_top_k, ensure_dir_exists
+from image_recognition.utils import in_top_k, ensure_dir_exists, const_for_none
 from inception import slim
 from image_recognition.fc_datasets import FlowerCheckerDataSet, prepare_inception_dirs
 
-
-TENSOR_BOARD_DIR = "../../tenzor_board"
+TENSOR_BOARD_DIR = "../tenzor_board"
 ORIGINAL_INCEPTION_CKPT_DIR = "models/inception-v3"
 CACHE_DIR = "/home/thran/projects/cache"
 INCEPTION_INPUT_SIZE = 299, 299
@@ -19,20 +16,27 @@ RMSPROP_EPSILON = 1.0              # Epsilon term for RMSProp.
 
 
 class InceptionModel:
-    VERSION = 0.1
+    # >=0.2 with meta
+    VERSION = '0.2'
 
     def __init__(self, dataset, learning_rate=0.001):
         self._data_set = dataset
         self.class_count = dataset.class_count
         self.jpeg = tf.placeholder(dtype='string', name="jpeg")
+        self.lat_placeholder = tf.placeholder_with_default(tf.zeros([1], dtype=tf.float32), [None], name='lat_placeholder')
+        self.lng_placeholder = tf.placeholder_with_default(tf.zeros([1], dtype=tf.float32), [None], name='lng_placeholder')
+        self.week_placeholder = tf.placeholder_with_default(tf.zeros([1], dtype=tf.float32), [None], name='week_placeholder')
         self.ground_truth = tf.placeholder(tf.float32, [None, self.class_count])
 
         self.processed_jpeq = None
         self.inception_input = None
+        self.logits = None
         self.predictions = None
         self.cross_entropy = None
         self.train_step = None
         self.accuracy = None
+        self.top3 = None
+        self.top5 = None
 
         self.optimizer = tf.train.RMSPropOptimizer(learning_rate, RMSPROP_DECAY,
                                                    momentum=RMSPROP_MOMENTUM, epsilon=RMSPROP_EPSILON)
@@ -43,62 +47,70 @@ class InceptionModel:
         return "IncMod v{} - {} plants".format(self.VERSION, self._data_set.class_count)
 
     def add_image_pre_processing(self):
-        image = tf.image.decode_jpeg(self.jpeg, channels=3)
-        image = tf.image.convert_image_dtype(image, dtype=tf.float32)
-        image = tf.sub(image, 0.5)
-        image = tf.mul(image, 2.0)
-        self.processed_jpeq = tf.image.resize_images(image, *INCEPTION_INPUT_SIZE)
-        self.inception_input = tf.placeholder_with_default(
-            tf.expand_dims(self.processed_jpeq, 0), shape=[None, INCEPTION_INPUT_SIZE[0], INCEPTION_INPUT_SIZE[1], 3])
-        f = lambda img: model.pre_process_image(sess, img)
-        self._data_set.train.pre_process_image = f
-        self._data_set.validation.pre_process_image = f
+        with tf.variable_scope('pre_process_image'):
+            image = tf.image.decode_jpeg(self.jpeg, channels=3)
+            image = tf.image.convert_image_dtype(image, dtype=tf.float32)
+            image = tf.sub(image, 0.5)
+            image = tf.mul(image, 2.0)
+            self.processed_jpeq = tf.image.resize_images(image, *INCEPTION_INPUT_SIZE)
+            self.inception_input = tf.placeholder_with_default(
+                tf.expand_dims(self.processed_jpeq, 0), shape=[None, INCEPTION_INPUT_SIZE[0], INCEPTION_INPUT_SIZE[1], 3])
+            f = lambda img: model.pre_process_image(sess, img)
+            self._data_set.train.pre_process_image = f
+            self._data_set.validation.pre_process_image = f
 
     def pre_process_image(self, sess, image):
         image = tf.gfile.FastGFile(image, 'rb').read()
         return sess.run(self.processed_jpeq, feed_dict={self.jpeg: image})
 
     def add_train_step(self):
-        # Build the portion of the Graph calculating the losses. Note that we will
-        # assemble the total_loss using a custom function below.
-        #  TODO
-        slim.losses.cross_entropy_loss(self.logits[0], self.ground_truth, label_smoothing=0.1, weight=1.0)
-        slim.losses.cross_entropy_loss(self.logits[1], self.ground_truth, label_smoothing=0.1, weight=0.4, scope='aux_loss')
+        with tf.variable_scope('taining'):
+            loss = slim.losses.cross_entropy_loss(self.logits[0], self.ground_truth, label_smoothing=0.1, weight=1.0)
+            loss_auxiliary = slim.losses.cross_entropy_loss(self.logits[1], self.ground_truth, label_smoothing=0.1, weight=0.4, scope='aux_loss')
+            losses = [loss, loss_auxiliary]
+            regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+            total_loss = tf.add_n(losses + regularization_losses, name='total_loss')
+            loss_averages = tf.train.ExponentialMovingAverage(0.9, name='avg')
+            loss_averages_op = loss_averages.apply(losses + [total_loss])
 
-        # Assemble all of the losses for the current tower only.
-        losses = tf.get_collection(slim.losses.LOSSES_COLLECTION)
+            with tf.control_dependencies([loss_averages_op]):
+                total_loss = tf.identity(total_loss)
 
-        # Calculate the total loss for the current tower.
-        regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-        total_loss = tf.add_n(losses + regularization_losses, name='total_loss')
+            apply_gradient_op = self.optimizer.minimize(total_loss)
 
-        # Compute the moving average of all individual losses and the total loss.
-        loss_averages = tf.train.ExponentialMovingAverage(0.9, name='avg')
-        loss_averages_op = loss_averages.apply(losses + [total_loss])
-
-        with tf.control_dependencies([loss_averages_op]):
-            total_loss = tf.identity(total_loss)
-
-        apply_gradient_op = self.optimizer.minimize(total_loss)
-
-        variable_averages = tf.train.ExponentialMovingAverage(inception.MOVING_AVERAGE_DECAY, num_updates=None)
-        variables_to_average = (tf.trainable_variables() + tf.moving_average_variables())
-        variables_averages_op = variable_averages.apply(variables_to_average)
-        batchnorm_updates = tf.get_collection(slim.ops.UPDATE_OPS_COLLECTION)
-        batchnorm_updates_op = tf.group(*batchnorm_updates)
-        # Group all updates to into a single train op.
-        self.train_step = tf.group(apply_gradient_op, variables_averages_op, batchnorm_updates_op)
+            variable_averages = tf.train.ExponentialMovingAverage(inception.MOVING_AVERAGE_DECAY, num_updates=None)
+            variables_to_average = (tf.trainable_variables() + tf.moving_average_variables())
+            variables_averages_op = variable_averages.apply(variables_to_average)
+            batchnorm_updates = tf.get_collection(slim.ops.UPDATE_OPS_COLLECTION)
+            batchnorm_updates_op = tf.group(*batchnorm_updates)
+            self.train_step = tf.group(apply_gradient_op, variables_averages_op, batchnorm_updates_op)
 
     def add_result_ops(self):
-        labels = tf.argmax(self.ground_truth, 1)
-        self.predictions = tf.nn.softmax(self.logits[0], name='predictions')
-        correct_prediction = tf.equal(tf.argmax(self.predictions, 1), labels)
-        self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"), name='accuracy')
+        with tf.variable_scope('results'):
+            labels = tf.argmax(self.ground_truth, 1)
+            self.predictions = tf.nn.softmax(self.logits[0], name='predictions')
+            correct_prediction = tf.equal(tf.argmax(self.predictions, 1), labels)
+            self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"), name='accuracy')
+            self.top3 = in_top_k(self.predictions, labels, 3)
+            self.top5 = in_top_k(self.predictions, labels, 5)
+
+    def add_meta_nn(self):
+        with tf.variable_scope('meta NN'):
+            lat_input = tf.reshape(self.lat_placeholder, (-1, 1)) / 90
+            lng_input = tf.reshape(self.lng_placeholder, (-1, 1)) / 180
+            week_input = tf.reshape(self.week_placeholder, (-1, 1)) / 25 - 1
+            net = tf.concat(1, [lat_input, lng_input, week_input])
+            # 3
+            net = slim.ops.fc(net, 50)
+            net = slim.ops.fc(net, 50)
+        return net
 
     def build_graph(self):
         print("Building graph...")
         self.add_image_pre_processing()
-        self.logits = inception.inference(self.inception_input, self.class_count, for_training=True, restore_logits=False)
+        extra = self.add_meta_nn()
+        self.logits = inception.inference(self.inception_input, self.class_count, extra_to_last_layer=extra,
+                                          for_training=True, restore_logits=False)
         self.add_train_step()
         self.add_result_ops()
 
@@ -120,29 +132,35 @@ class InceptionModel:
         self.init_fresh_model(sess)
         return 0
 
+    def get_feed_dict(self, points):
+        images, metas, labels, _ = points
+        return {
+            self.inception_input: images,
+            self.ground_truth: labels,
+            self.lat_placeholder: [const_for_none(meta['lat']) for meta in metas],
+            self.lng_placeholder: [const_for_none(meta['lng']) for meta in metas],
+            self.week_placeholder: [const_for_none(meta['week']) for meta in metas],
+        }
+
     def evaluate(self, sess, dataset):
-        hits, hits3, hits5 = 0, 0, 0
-        i = 0
-        for points in dataset.iter_per_part(100):
-            images, metas, labels, _ = points
-            samples = len(images)
-            i += samples
-            print("\r>>> Evaluation: {} / {} ({:.2f}%)".format(i, dataset.size, hits / i * 100), end="")
-            acc, top3, top5 = sess.run([self.accuracy, in_top_k(self.predictions, labels, 3),
-                                        in_top_k(self.predictions, labels, 5)], feed_dict={
-                self.inception_input: images,
-                self.ground_truth: labels,
-            })
-            hits += acc * samples
-            hits3 += top3 * samples
-            hits5 += top5 * samples
+        with tf.variable_scope('evaluation'):
+            hits, hits3, hits5 = 0, 0, 0
+            i = 0
+            for points in dataset.iter_per_part(100):
+                samples = len(points)
+                i += samples
+                acc, top3, top5 = sess.run([self.accuracy, self.top3, self.top5], feed_dict=self.get_feed_dict(points))
+                hits += int(acc * samples)
+                hits3 += int(top3 * samples)
+                hits5 += int(top5 * samples)
+                print("\r>>> Evaluation: {} / {} ({:.2f}%)".format(i, dataset.size, hits / i * 100), end="")
 
-        accuracy = hits / dataset.size
+            accuracy = hits / dataset.size
 
-        summary = tf.Summary()
-        summary.value.add(tag='Accuracy', simple_value=accuracy)
-        summary.value.add(tag='Recall @ 3', simple_value=hits3 / dataset.size)
-        summary.value.add(tag='Recall @ 5', simple_value=hits5 / dataset.size)
+            summary = tf.Summary()
+            summary.value.add(tag='Accuracy', simple_value=accuracy)
+            summary.value.add(tag='Recall @ 3', simple_value=hits3 / dataset.size)
+            summary.value.add(tag='Recall @ 5', simple_value=hits5 / dataset.size)
         return accuracy, summary
 
     def train(self, sess, batch_size=20, evaluate_every=500, save_every=2000, checkpoint=None):
@@ -154,15 +172,12 @@ class InceptionModel:
             step += 1
             print("\r>>> Step: {}".format(step), end="")
 
-            images, metas, labels, _ = self._data_set.train.get_batch(batch_size)
-            self.train_step.run(feed_dict={
-                self.inception_input: images,
-                self.ground_truth: labels,
-            })
+            points = self._data_set.train.get_batch(batch_size)
+            self.train_step.run(feed_dict=self.get_feed_dict(points))
 
             if step % evaluate_every == 1:
                 accuracy, summary = self.evaluate(sess, self._data_set.validation)
-                print("\n>>> Step: {}, epoch: {}, accuracy: {:.2f}%".format(
+                print("\r>>> Step: {}, epoch: {}, accuracy: {:.2f}%".format(
                      step, self._data_set.train.finished_epochs, accuracy * 100))
                 summary_writer.add_summary(summary, step)
 
@@ -179,4 +194,4 @@ if True:
         with tf.Session() as sess:
             model = InceptionModel(ds)
             model.build_graph()
-            model.train(sess)
+            # model.train(sess)

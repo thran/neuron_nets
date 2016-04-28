@@ -54,7 +54,8 @@ def inception_v3(inputs,
                  num_classes=1000,
                  is_training=True,
                  restore_logits=True,
-                 scope=''):
+                 scope='',
+                 extra_to_last_layer=None):
     """Latest Inception from http://arxiv.org/abs/1512.00567.
 
       "Rethinking the Inception Architecture for Computer Vision"
@@ -313,6 +314,9 @@ def inception_v3(inputs,
                     net = ops.dropout(net, dropout_keep_prob, scope='dropout')
                     net = ops.flatten(net, scope='flatten')
                     # 2048
+                    if extra_to_last_layer is not None:
+                        net = tf.concat(1, [net, extra_to_last_layer])
+                        # 2048 + extra
                     logits = ops.fc(net, num_classes, activation=None, scope='logits',
                                     restore=restore_logits)
                     # 1000

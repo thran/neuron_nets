@@ -14,7 +14,11 @@ def ensure_dir_exists(dir_name):
         os.makedirs(dir_name)
 
 
-def in_top_k(predictions, labels, k, sprase=True):
+def const_for_none(x, const=0):
+    return const if x is None else x
+
+
+def in_top_k(predictions, labels, k, sprase=False):
     if sprase:
         labels = tf.argmax(np.array(labels), 1)
     return tf.reduce_mean(tf.to_float(tf.nn.in_top_k(predictions, labels, k)))

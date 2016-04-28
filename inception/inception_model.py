@@ -46,7 +46,7 @@ MOVING_AVERAGE_DECAY = 0.9999
 
 
 def inference(images, num_classes, for_training=False, restore_logits=True,
-              scope=None):
+              scope=None, extra_to_last_layer=None):
   """Build Inception v3 model architecture.
 
   See here for reference: http://arxiv.org/abs/1512.00567
@@ -84,7 +84,9 @@ def inference(images, num_classes, for_training=False, restore_logits=True,
           num_classes=num_classes,
           is_training=for_training,
           restore_logits=restore_logits,
-          scope=scope)
+          scope=scope,
+          extra_to_last_layer=extra_to_last_layer
+      )
 
   # Add summaries for viewing model statistics on TensorBoard.
   _activation_summaries(endpoints)
