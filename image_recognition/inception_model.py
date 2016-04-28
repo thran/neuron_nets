@@ -1,12 +1,17 @@
+import os
+
 import numpy as np
 import re
 import tensorflow as tf
 import inception.inception_model as inception
-from image_recognition.utils import in_top_k
+from image_recognition.utils import in_top_k, ensure_dir_exists
 from inception import slim
-from image_recognition.fc_datasets import FlowerCheckerDataSet
+from image_recognition.fc_datasets import FlowerCheckerDataSet, prepare_inception_dirs
 
+
+TENSOR_BOARD_DIR = "../../tenzor_board"
 ORIGINAL_INCEPTION_CKPT_DIR = "models/inception-v3"
+CACHE_DIR = "/home/thran/projects/cache"
 INCEPTION_INPUT_SIZE = 299, 299
 RMSPROP_DECAY = 0.9                # Decay term for RMSProp.
 RMSPROP_MOMENTUM = 0.9             # Momentum in RMSProp.
@@ -14,8 +19,9 @@ RMSPROP_EPSILON = 1.0              # Epsilon term for RMSProp.
 
 
 class InceptionModel:
+    VERSION = 0.1
 
-    def __init__(self, dataset, learning_rate=0.1):
+    def __init__(self, dataset, learning_rate=0.001):
         self._data_set = dataset
         self.class_count = dataset.class_count
         self.jpeg = tf.placeholder(dtype='string', name="jpeg")
@@ -28,7 +34,13 @@ class InceptionModel:
         self.train_step = None
         self.accuracy = None
 
-        self.optimizer = tf.train.RMSPropOptimizer(learning_rate, RMSPROP_DECAY, momentum=RMSPROP_MOMENTUM, epsilon=RMSPROP_EPSILON)
+        self.optimizer = tf.train.RMSPropOptimizer(learning_rate, RMSPROP_DECAY,
+                                                   momentum=RMSPROP_MOMENTUM, epsilon=RMSPROP_EPSILON)
+        self.tensor_board_path = os.path.join(TENSOR_BOARD_DIR, str(self))
+        self.save_path = os.path.join(CACHE_DIR, "checkpoints", str(self))
+
+    def __str__(self):
+        return "IncMod v{} - {} plants".format(self.VERSION, self._data_set.class_count)
 
     def add_image_pre_processing(self):
         image = tf.image.decode_jpeg(self.jpeg, channels=3)
@@ -43,9 +55,10 @@ class InceptionModel:
         self._data_set.validation.pre_process_image = f
 
     def pre_process_image(self, sess, image):
+        image = tf.gfile.FastGFile(image, 'rb').read()
         return sess.run(self.processed_jpeq, feed_dict={self.jpeg: image})
 
-    def add_inception_end(self):
+    def add_train_step(self):
         # Build the portion of the Graph calculating the losses. Note that we will
         # assemble the total_loss using a custom function below.
         #  TODO
@@ -76,85 +89,94 @@ class InceptionModel:
         # Group all updates to into a single train op.
         self.train_step = tf.group(apply_gradient_op, variables_averages_op, batchnorm_updates_op)
 
-    def add_train_step(self):
-        cross_entropy = -tf.reduce_sum(self.ground_truth *
-                                       tf.log(tf.clip_by_value(self.predictions, 1e-10, 1.0)))
-        self.cross_entropy = tf.reduce_mean(cross_entropy, name='cross_entropy')
-        self.train_step = self.optimizer.minimize(self.cross_entropy)
-
     def add_result_ops(self):
         labels = tf.argmax(self.ground_truth, 1)
         self.predictions = tf.nn.softmax(self.logits[0], name='predictions')
         correct_prediction = tf.equal(tf.argmax(self.predictions, 1), labels)
         self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"), name='accuracy')
 
-        tf.scalar_summary("accuracy", self.accuracy)
-        tf.scalar_summary("top3", in_top_k(self.predictions, labels, 3))
-        tf.scalar_summary("top5", in_top_k(self.predictions, labels, 5))
-        tf.scalar_summary("top10", in_top_k(self.predictions, labels, 10))
-
     def build_graph(self):
         print("Building graph...")
         self.add_image_pre_processing()
         self.logits = inception.inference(self.inception_input, self.class_count, for_training=True, restore_logits=False)
-        # self.add_train_step()
-        self.add_inception_end()
+        self.add_train_step()
         self.add_result_ops()
 
     def init_fresh_model(self, sess):
-        print("Loading graph...")
+        print("Loading original inception...")
         sess.run(tf.initialize_all_variables())
         ckpt = tf.train.get_checkpoint_state(ORIGINAL_INCEPTION_CKPT_DIR).model_checkpoint_path
         variables_to_restore = tf.get_collection(slim.variables.VARIABLES_TO_RESTORE)
         saver = tf.train.Saver(variables_to_restore)
         saver.restore(sess, ckpt)
 
+    def load_last_checkpoint(self, sess, checkpoint=None, saver=None):
+        saver = saver if saver else tf.train.Saver()
+        last_checkpoint = checkpoint if checkpoint else tf.train.latest_checkpoint(self.save_path)
+        if last_checkpoint:
+            print("Restoring checkpoint...")
+            saver.restore(sess, last_checkpoint)
+            return int(last_checkpoint.split("-")[-1])
+        self.init_fresh_model(sess)
+        return 0
+
     def evaluate(self, sess, dataset):
-        hits = 0
+        hits, hits3, hits5 = 0, 0, 0
         i = 0
         for points in dataset.iter_per_part(100):
             images, metas, labels, _ = points
             samples = len(images)
             i += samples
             print("\r>>> Evaluation: {} / {} ({:.2f}%)".format(i, dataset.size, hits / i * 100), end="")
-            acc = sess.run(self.accuracy, feed_dict={
+            acc, top3, top5 = sess.run([self.accuracy, in_top_k(self.predictions, labels, 3),
+                                        in_top_k(self.predictions, labels, 5)], feed_dict={
                 self.inception_input: images,
                 self.ground_truth: labels,
             })
             hits += acc * samples
+            hits3 += top3 * samples
+            hits5 += top5 * samples
 
-        return hits / dataset.size
+        accuracy = hits / dataset.size
 
-    def train(self, sess):
+        summary = tf.Summary()
+        summary.value.add(tag='Accuracy', simple_value=accuracy)
+        summary.value.add(tag='Recall @ 3', simple_value=hits3 / dataset.size)
+        summary.value.add(tag='Recall @ 5', simple_value=hits5 / dataset.size)
+        return accuracy, summary
+
+    def train(self, sess, batch_size=20, evaluate_every=500, save_every=2000, checkpoint=None):
+        summary_writer = tf.train.SummaryWriter(self.tensor_board_path, sess.graph, flush_secs=30)
+        saver = tf.train.Saver(max_to_keep=2)
+        step = self.load_last_checkpoint(sess, saver=saver, checkpoint=checkpoint)
         print("Training...")
-        i = 0
         while True:
-            i += 1
+            step += 1
+            print("\r>>> Step: {}".format(step), end="")
 
-            if i % 200 == 0:
-                accuracy = self.evaluate(sess, self._data_set.validation)
-                print("\n>>> Step: {}, epoch: {}, accuracy: {:.2f}%".format(
-                     i, self._data_set.train.finished_epochs, accuracy * 100))
-
-            print("\r>>> Step: {}".format(i), end="")
-
-            images, metas, labels, _ = self._data_set.train.get_batch(20)
+            images, metas, labels, _ = self._data_set.train.get_batch(batch_size)
             self.train_step.run(feed_dict={
                 self.inception_input: images,
                 self.ground_truth: labels,
             })
 
-import matplotlib.pyplot as plt
+            if step % evaluate_every == 1:
+                accuracy, summary = self.evaluate(sess, self._data_set.validation)
+                print("\n>>> Step: {}, epoch: {}, accuracy: {:.2f}%".format(
+                     step, self._data_set.train.finished_epochs, accuracy * 100))
+                summary_writer.add_summary(summary, step)
+
+            if step % save_every == 0:
+                path = os.path.join(self.save_path, "checkpoint")
+                ensure_dir_exists(self.save_path)
+                saver.save(sess, path, global_step=step)
 
 ds = FlowerCheckerDataSet()
-ds.prepare_data(test_size=0, validation_size=0.03)
+ds.prepare_data(validation_size=0.05)
 
 if True:
     with tf.Graph().as_default():
         with tf.Session() as sess:
             model = InceptionModel(ds)
             model.build_graph()
-            model.init_fresh_model(sess)
             model.train(sess)
-
-plt.show()

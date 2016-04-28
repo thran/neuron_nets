@@ -2,9 +2,10 @@ import json
 
 import numpy as np
 import os
-import tensorflow as tf
+import shutil
+
 from dataset import DataSet
-from image_recognition.utils import dense_to_one_hot, hash_str
+from image_recognition.utils import dense_to_one_hot, hash_str, ensure_dir_exists
 
 
 class FlowerCheckerDataSet(DataSet):
@@ -12,7 +13,7 @@ class FlowerCheckerDataSet(DataSet):
         super().__init__()
         self.dir_name = dir_name
         self.file_name = file_name
-        self.pre_process_image = None
+        self.pre_process_image = lambda img: img
 
     def _load_data(self):
         data = json.load(open(os.path.join(self.dir_name, self.file_name)))
@@ -49,9 +50,20 @@ class FlowerCheckerDataSet(DataSet):
 
     def _pre_process_point(self, point, label, identifier):
         image_path, meta = point
-        image = tf.gfile.FastGFile(image_path, 'rb').read()
-        return self.pre_process_image(image), meta, label, identifier
+        return self.pre_process_image(image_path), meta, label, identifier
 
     def get_one(self):
         ds, ms, ls, ids = self.get_batch(1)
         return ds[0], ms[0], ls[0], ids[0]
+
+
+def prepare_inception_dirs(dataset, output_dir='datasets/flowerchecker/inception'):
+    while True:
+        try:
+            image_path, meta, label, identifier = dataset.get_one()
+        except:
+            break
+        cls = dataset.get_class(label)
+        dir = os.path.join(output_dir, cls)
+        ensure_dir_exists(dir)
+        shutil.copy(image_path, dir)

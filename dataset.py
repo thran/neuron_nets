@@ -18,7 +18,7 @@ class DataSet:
         self._position_part = 0
         np.random.seed(seed)
 
-    def prepare_data(self, validation_size=0.1, test_size=0.1, balanced_train=False):
+    def prepare_data(self, validation_size=0.1, test_size=0, balanced_train=False):
         self._load_data()
         self._shuffle_data()
         self._split_data(validation_size=validation_size, test_size=test_size)
