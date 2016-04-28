@@ -6,7 +6,7 @@ from image_recognition.utils import hash_str, dense_to_one_hot
 
 
 class DataSet:
-    def __init__(self, seed=42):
+    def __init__(self):
         self.finished_epochs = 0
         self.class_count = 0
         self.size, self.size_train, self.size_test, self.size_validation = 0, 0, 0, 0
@@ -16,15 +16,16 @@ class DataSet:
         self._identifiers = []
         self._position = 0
         self._position_part = 0
-        np.random.seed(seed)
 
-    def prepare_data(self, validation_size=0.1, test_size=0, balanced_train=False):
+    def prepare_data(self, validation_size=0.1, test_size=0, balanced_train=False, seed=42):
+        np.random.seed(seed)
         self._load_data()
         self._shuffle_data()
         self._split_data(validation_size=validation_size, test_size=test_size)
         if balanced_train:
             self.train._balance_data()
         self._position = 0
+        np.random.seed()
 
     def _pre_process_points(self, points, labels, identifiers):
         ps, ls, ids = [], [], []

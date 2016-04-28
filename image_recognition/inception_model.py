@@ -9,7 +9,7 @@ from image_recognition.fc_datasets import FlowerCheckerDataSet, prepare_inceptio
 TENSOR_BOARD_DIR = "../tenzor_board"
 ORIGINAL_INCEPTION_CKPT_DIR = "models/inception-v3"
 CACHE_DIR = "/home/thran/projects/cache"
-INCEPTION_INPUT_SIZE = 299, 299
+INPUT_SIZE = 299, 299
 RMSPROP_DECAY = 0.9                # Decay term for RMSProp.
 RMSPROP_MOMENTUM = 0.9             # Momentum in RMSProp.
 RMSPROP_EPSILON = 1.0              # Epsilon term for RMSProp.
@@ -29,6 +29,7 @@ class InceptionModel:
         self.ground_truth = tf.placeholder(tf.float32, [None, self.class_count])
 
         self.processed_jpeq = None
+        self.distorted_image = None
         self.inception_input = None
         self.logits = None
         self.predictions = None
@@ -52,16 +53,52 @@ class InceptionModel:
             image = tf.image.convert_image_dtype(image, dtype=tf.float32)
             image = tf.sub(image, 0.5)
             image = tf.mul(image, 2.0)
-            self.processed_jpeq = tf.image.resize_images(image, *INCEPTION_INPUT_SIZE)
+            self.processed_jpeq = tf.image.resize_images(image, *INPUT_SIZE)
             self.inception_input = tf.placeholder_with_default(
-                tf.expand_dims(self.processed_jpeq, 0), shape=[None, INCEPTION_INPUT_SIZE[0], INCEPTION_INPUT_SIZE[1], 3])
-            f = lambda img: model.pre_process_image(sess, img)
-            self._data_set.train.pre_process_image = f
-            self._data_set.validation.pre_process_image = f
+                tf.expand_dims(self.processed_jpeq, 0), shape=[None, INPUT_SIZE[0], INPUT_SIZE[1], 3])
 
-    def pre_process_image(self, sess, image):
-        image = tf.gfile.FastGFile(image, 'rb').read()
-        return sess.run(self.processed_jpeq, feed_dict={self.jpeg: image})
+    def pre_process_image(self, sess, image_path):
+        with tf.gfile.FastGFile(image_path, 'rb') as image_file:
+            image = sess.run(self.processed_jpeq, feed_dict={self.jpeg: image_file.read()})
+        return image
+
+    def add_image_distortion(self):
+        with tf.variable_scope('distort_image'):
+            image = tf.image.decode_jpeg(self.jpeg, channels=3)
+            image = tf.image.convert_image_dtype(image, dtype=tf.float32)
+            crop_scale = tf.random_uniform([], minval=0.5, maxval=1)
+            height = tf.case(tf.scalar_mul(crop_scale, image.get_shape(0)), tf.int32)
+            width = tf.cast(tf.scalar_mul(crop_scale, image.get_shape(1)), tf.int32)
+            image = tf.random_crop(image, [height, width, 3])
+
+            image = tf.image.resize_images(image, INPUT_SIZE[0], INPUT_SIZE[1])
+            image = tf.image.random_flip_left_right(image)
+
+            def distort_colors_1():
+                i = tf.image.random_brightness(image, max_delta=32. / 255.)
+                i = tf.image.random_saturation(i, lower=0.5, upper=1.5)
+                i = tf.image.random_hue(i, max_delta=0.2)
+                i = tf.image.random_contrast(i, lower=0.5, upper=1.5)
+                return i
+
+            def distort_colors_2():
+                i = tf.image.random_brightness(image, max_delta=32. / 255.)
+                i = tf.image.random_contrast(i, lower=0.5, upper=1.5)
+                i = tf.image.random_saturation(i, lower=0.5, upper=1.5)
+                i = tf.image.random_hue(i, max_delta=0.2)
+                return i
+
+            image = tf.cond(tf.equal(0, tf.random_uniform(shape=[], maxval=2, dtype=tf.int32)),
+                            distort_colors_1, distort_colors_2)
+
+            image = tf.sub(image, 0.5)
+            image = tf.mul(image, 2.0)
+            self.distorted_image = image
+
+    def distort_image(self, sess, image_path):
+        with tf.gfile.FastGFile(image_path, 'rb') as image_file:
+            image = sess.run(self.distorted_image, feed_dict={self.jpeg: image_file.read()})
+        return image
 
     def add_train_step(self):
         with tf.variable_scope('taining'):
@@ -95,14 +132,14 @@ class InceptionModel:
             self.top5 = in_top_k(self.predictions, labels, 5)
 
     def add_meta_nn(self):
-        with tf.variable_scope('meta NN'):
+        with tf.variable_scope('meta_NN'):
             lat_input = tf.reshape(self.lat_placeholder, (-1, 1)) / 90
             lng_input = tf.reshape(self.lng_placeholder, (-1, 1)) / 180
             week_input = tf.reshape(self.week_placeholder, (-1, 1)) / 25 - 1
             net = tf.concat(1, [lat_input, lng_input, week_input])
             # 3
-            net = slim.ops.fc(net, 50)
-            net = slim.ops.fc(net, 50)
+            net = slim.ops.fc(net, 50, restore=False)
+            net = slim.ops.fc(net, 50, restore=False)
         return net
 
     def build_graph(self):
@@ -113,6 +150,9 @@ class InceptionModel:
                                           for_training=True, restore_logits=False)
         self.add_train_step()
         self.add_result_ops()
+
+        self._data_set.train.pre_process_image = lambda img: model.distort_image(sess, img)
+        self._data_set.validation.pre_process_image = lambda img: model.pre_process_image(sess, img)
 
     def init_fresh_model(self, sess):
         print("Loading original inception...")
@@ -147,7 +187,7 @@ class InceptionModel:
             hits, hits3, hits5 = 0, 0, 0
             i = 0
             for points in dataset.iter_per_part(100):
-                samples = len(points)
+                samples = len(points[0])
                 i += samples
                 acc, top3, top5 = sess.run([self.accuracy, self.top3, self.top5], feed_dict=self.get_feed_dict(points))
                 hits += int(acc * samples)
@@ -194,4 +234,4 @@ if True:
         with tf.Session() as sess:
             model = InceptionModel(ds)
             model.build_graph()
-            # model.train(sess)
+            model.train(sess)
