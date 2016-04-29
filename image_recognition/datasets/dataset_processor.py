@@ -16,6 +16,7 @@ def download_flowerchecker_dataset(dataset_file="flowerchecker/images.json", siz
     FILE_PATH = "flowerchecker/images/{}.jpg"
 
     data = json.load(open(dataset_file))
+    print(len(data))
     for label in sorted(data.keys()):
         d = data[label]
         images = d["images"] if "images" in d else [p["image"] for p in d]
@@ -31,4 +32,4 @@ def download_flowerchecker_dataset(dataset_file="flowerchecker/images.json", siz
                     print("Problem with image", image)
         print()
 
-# download_flowerchecker_dataset("flowerchecker/dataset.json")
+# download_flowerchecker_dataset("flowerchecker/dataset_v2_small.json")

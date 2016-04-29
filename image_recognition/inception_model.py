@@ -224,7 +224,7 @@ class InceptionModel:
                 ensure_dir_exists(self.save_path)
                 saver.save(sess, path, global_step=step)
 
-ds = FlowerCheckerDataSet()
+ds = FlowerCheckerDataSet(file_name='dataset_v2_small.json')
 ds.prepare_data(validation_size=0.05)
 
 if True:

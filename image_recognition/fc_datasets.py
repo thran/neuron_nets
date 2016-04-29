@@ -1,4 +1,5 @@
 import json
+from collections import defaultdict
 
 import numpy as np
 import os
@@ -15,6 +16,12 @@ class FlowerCheckerDataSet(DataSet):
         self.file_name = file_name
         self.pre_process_image = lambda img: img
 
+    def _add_point(self, data, label, identifier):
+        self._labels.append(label)
+        self._data.append(data)
+        self._identifiers.append(identifier)
+        self.size += 1
+
     def _load_data(self):
         data = json.load(open(os.path.join(self.dir_name, self.file_name)))
         data = self._prepare_classes(data)
@@ -25,10 +32,14 @@ class FlowerCheckerDataSet(DataSet):
             for point in points:
                 image_path = os.path.abspath(os.path.join(self.dir_name, "images", "{}.jpg".format(point["image"])))
                 meta = point
-                self._labels.append(i)
-                self._data.append((image_path, meta))
-                self._identifiers.append(hash_str(image_path))
-                self.size += 1
+                self._add_point((image_path, meta), i, hash_str(image_path))
+            scrape_dir = os.path.join(self.dir_name, "images-scrape", cls)
+            if os.path.exists(scrape_dir):
+                for image in os.listdir(scrape_dir):
+                    image_path = os.path.abspath(os.path.join(scrape_dir, image))
+                    meta = defaultdict(lambda: None)
+                    self._add_point((image_path, meta), i, hash_str(image_path))
+
         self._labels = dense_to_one_hot(np.array(self._labels), num_classes=self.class_count)
         self._data = np.array(self._data)
         self._identifiers = np.array(self._identifiers)
@@ -67,3 +78,6 @@ def prepare_inception_dirs(dataset, output_dir='datasets/flowerchecker/inception
         dir = os.path.join(output_dir, cls)
         ensure_dir_exists(dir)
         shutil.copy(image_path, dir)
+
+# ds = FlowerCheckerDataSet(file_name='dataset_v2_small.json')
+# ds.prepare_data()
