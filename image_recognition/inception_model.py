@@ -67,11 +67,11 @@ class InceptionModel:
             image = tf.image.decode_jpeg(self.jpeg, channels=3)
             image = tf.image.convert_image_dtype(image, dtype=tf.float32)
             crop_scale = tf.random_uniform([], minval=0.5, maxval=1)
-            height = tf.case(tf.scalar_mul(crop_scale, image.get_shape(0)), tf.int32)
-            width = tf.cast(tf.scalar_mul(crop_scale, image.get_shape(1)), tf.int32)
-            image = tf.random_crop(image, [height, width, 3])
+            height = tf.cast(INPUT_SIZE[0] / crop_scale, tf.int32)
+            width = tf.cast(INPUT_SIZE[1] / crop_scale, tf.int32)
+            image = tf.image.resize_images(image, height, width)
 
-            image = tf.image.resize_images(image, INPUT_SIZE[0], INPUT_SIZE[1])
+            image = tf.random_crop(image, [INPUT_SIZE[0], INPUT_SIZE[1], 3])
             image = tf.image.random_flip_left_right(image)
 
             def distort_colors_1():
@@ -145,14 +145,12 @@ class InceptionModel:
     def build_graph(self):
         print("Building graph...")
         self.add_image_pre_processing()
+        self.add_image_distortion()
         extra = self.add_meta_nn()
         self.logits = inception.inference(self.inception_input, self.class_count, extra_to_last_layer=extra,
                                           for_training=True, restore_logits=False)
         self.add_train_step()
         self.add_result_ops()
-
-        self._data_set.train.pre_process_image = lambda img: model.distort_image(sess, img)
-        self._data_set.validation.pre_process_image = lambda img: model.pre_process_image(sess, img)
 
     def init_fresh_model(self, sess):
         print("Loading original inception...")
@@ -215,10 +213,10 @@ class InceptionModel:
             points = self._data_set.train.get_batch(batch_size)
             self.train_step.run(feed_dict=self.get_feed_dict(points))
 
-            if step % evaluate_every == 1:
+            if step % evaluate_every == 0:
                 accuracy, summary = self.evaluate(sess, self._data_set.validation)
                 print("\r>>> Step: {}, epoch: {}, accuracy: {:.2f}%".format(
-                     step, self._data_set.train.finished_epochs, accuracy * 100))
+                     step, step * batch_size / self._data_set.train.size, accuracy * 100))
                 summary_writer.add_summary(summary, step)
 
             if step % save_every == 0:
@@ -234,4 +232,7 @@ if True:
         with tf.Session() as sess:
             model = InceptionModel(ds)
             model.build_graph()
+            ds.validation.pre_process_image = lambda img: model.pre_process_image(sess, img)
+            # ds.train.pre_process_image = lambda img: model.pre_process_image(sess, img)
+            ds.train.pre_process_image = lambda img: model.distort_image(sess, img)
             model.train(sess)
