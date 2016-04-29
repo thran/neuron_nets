@@ -1,3 +1,4 @@
+import numpy as np
 import os
 
 import tensorflow as tf
@@ -13,13 +14,16 @@ INPUT_SIZE = 299, 299
 RMSPROP_DECAY = 0.9                # Decay term for RMSProp.
 RMSPROP_MOMENTUM = 0.9             # Momentum in RMSProp.
 RMSPROP_EPSILON = 1.0              # Epsilon term for RMSProp.
+INITIAL_LR = 0.001
+LR_DECAY_FACTOR = 0.3
+LR_DECAY_STEP = 10 * 10 ** 5 / 20   # epochs * images / batch_size
 
 
 class InceptionModel:
     # >=0.2 with meta
     VERSION = '0.2'
 
-    def __init__(self, dataset, learning_rate=0.001):
+    def __init__(self, dataset):
         self._data_set = dataset
         self.class_count = dataset.class_count
         self.jpeg = tf.placeholder(dtype='string', name="jpeg")
@@ -33,13 +37,17 @@ class InceptionModel:
         self.inception_input = None
         self.logits = None
         self.predictions = None
+        self.total_loss = None
         self.cross_entropy = None
         self.train_step = None
         self.accuracy = None
         self.top3 = None
         self.top5 = None
 
-        self.optimizer = tf.train.RMSPropOptimizer(learning_rate, RMSPROP_DECAY,
+        self.global_step = tf.get_variable('global_step', [], initializer=tf.constant_initializer(0), trainable=False)
+        self.learning_rate = tf.train.exponential_decay(INITIAL_LR, self.global_step,
+                                                        LR_DECAY_STEP, LR_DECAY_FACTOR, staircase=True)
+        self.optimizer = tf.train.RMSPropOptimizer(self.learning_rate, RMSPROP_DECAY,
                                                    momentum=RMSPROP_MOMENTUM, epsilon=RMSPROP_EPSILON)
         self.tensor_board_path = os.path.join(TENSOR_BOARD_DIR, str(self))
         self.save_path = os.path.join(CACHE_DIR, "checkpoints", str(self))
@@ -111,9 +119,9 @@ class InceptionModel:
             loss_averages_op = loss_averages.apply(losses + [total_loss])
 
             with tf.control_dependencies([loss_averages_op]):
-                total_loss = tf.identity(total_loss)
+                self.total_loss = tf.identity(total_loss)
 
-            apply_gradient_op = self.optimizer.minimize(total_loss)
+            apply_gradient_op = self.optimizer.minimize(self.total_loss)
 
             variable_averages = tf.train.ExponentialMovingAverage(inception.MOVING_AVERAGE_DECAY, num_updates=None)
             variables_to_average = (tf.trainable_variables() + tf.moving_average_variables())
@@ -166,9 +174,8 @@ class InceptionModel:
         if last_checkpoint:
             print("Restoring checkpoint...")
             saver.restore(sess, last_checkpoint)
-            return int(last_checkpoint.split("-")[-1])
-        self.init_fresh_model(sess)
-        return 0
+        else:
+            self.init_fresh_model(sess)
 
     def get_feed_dict(self, points):
         images, metas, labels, _ = points
@@ -187,7 +194,8 @@ class InceptionModel:
             for points in dataset.iter_per_part(100):
                 samples = len(points[0])
                 i += samples
-                acc, top3, top5 = sess.run([self.accuracy, self.top3, self.top5], feed_dict=self.get_feed_dict(points))
+                loss, acc, top3, top5 = sess.run([self.total_loss, self.accuracy, self.top3, self.top5], feed_dict=self.get_feed_dict(points))
+                assert not np.isnan(loss), 'Model diverged with loss = NaN'
                 hits += int(acc * samples)
                 hits3 += int(top3 * samples)
                 hits5 += int(top5 * samples)
@@ -204,19 +212,21 @@ class InceptionModel:
     def train(self, sess, batch_size=20, evaluate_every=500, save_every=2000, checkpoint=None):
         summary_writer = tf.train.SummaryWriter(self.tensor_board_path, sess.graph, flush_secs=30)
         saver = tf.train.Saver(max_to_keep=2)
-        step = self.load_last_checkpoint(sess, saver=saver, checkpoint=checkpoint)
+        self.load_last_checkpoint(sess, saver=saver, checkpoint=checkpoint)
         print("Training...")
         while True:
-            step += 1
-            print("\r>>> Step: {}".format(step), end="")
+            sess.run(self.global_step.assign_add(1))
+            step = int(self.global_step.value().eval())
+            print("\r>>> Step: {}".format(int(step)), end="")
 
             points = self._data_set.train.get_batch(batch_size)
             self.train_step.run(feed_dict=self.get_feed_dict(points))
 
-            if step % evaluate_every == 0:
+            if step % evaluate_every == 1:
                 accuracy, summary = self.evaluate(sess, self._data_set.validation)
-                print("\r>>> Step: {}, epoch: {}, accuracy: {:.2f}%".format(
-                     step, step * batch_size / self._data_set.train.size, accuracy * 100))
+                print("\r>>> Step: {}, epoch: {:.2f}, LR: {:.6f}, accuracy: {:.2f}%".format(
+                    step, step * batch_size / self._data_set.train.size,
+                    self.learning_rate.eval(), accuracy * 100))
                 summary_writer.add_summary(summary, step)
 
             if step % save_every == 0:
@@ -224,7 +234,8 @@ class InceptionModel:
                 ensure_dir_exists(self.save_path)
                 saver.save(sess, path, global_step=step)
 
-ds = FlowerCheckerDataSet(file_name='dataset_v2_small.json')
+ds = FlowerCheckerDataSet()
+# ds = FlowerCheckerDataSet(file_name='dataset_v2_small.json')
 ds.prepare_data(validation_size=0.05)
 
 if True:

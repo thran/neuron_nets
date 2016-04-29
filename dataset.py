@@ -25,7 +25,6 @@ class DataSet:
         if balanced_train:
             self.train._balance_data()
         self._position = 0
-        np.random.seed()
 
     def _pre_process_points(self, points, labels, identifiers):
         ps, ls, ids = [], [], []
