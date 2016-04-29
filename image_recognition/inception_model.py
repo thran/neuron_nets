@@ -5,7 +5,7 @@ import tensorflow as tf
 import inception.inception_model as inception
 from image_recognition.utils import in_top_k, ensure_dir_exists, const_for_none
 from inception import slim
-from image_recognition.fc_datasets import FlowerCheckerDataSet, prepare_inception_dirs
+from image_recognition.fc_datasets import FlowerCheckerDataSet
 
 TENSOR_BOARD_DIR = "../tenzor_board"
 ORIGINAL_INCEPTION_CKPT_DIR = "models/inception-v3"
@@ -234,8 +234,9 @@ class InceptionModel:
                 ensure_dir_exists(self.save_path)
                 saver.save(sess, path, global_step=step)
 
-ds = FlowerCheckerDataSet()
-# ds = FlowerCheckerDataSet(file_name='dataset_v2_small.json')
+# ds = FlowerCheckerDataSet()
+# download_flowerchecker_dataset("datasets/flowerchecker/dataset_v2_small.json")
+ds = FlowerCheckerDataSet(file_name='dataset_v2_small.json')
 ds.prepare_data(validation_size=0.05)
 
 if True:
@@ -244,6 +245,5 @@ if True:
             model = InceptionModel(ds)
             model.build_graph()
             ds.validation.pre_process_image = lambda img: model.pre_process_image(sess, img)
-            # ds.train.pre_process_image = lambda img: model.pre_process_image(sess, img)
             ds.train.pre_process_image = lambda img: model.distort_image(sess, img)
             model.train(sess)

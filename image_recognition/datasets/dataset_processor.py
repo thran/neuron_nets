@@ -1,9 +1,11 @@
+import glob
 import json
 import os
 import urllib.request
 import urllib.error
 
 import scipy.io
+import shutil
 
 
 def procces_102_oxford_dataset():
@@ -11,9 +13,9 @@ def procces_102_oxford_dataset():
     labels = labels["labels"][0]
 
 
-def download_flowerchecker_dataset(dataset_file="flowerchecker/images.json", size="big"):
+def download_flowerchecker_dataset(dataset_file="datasets/flowerchecker/images.json", size="big"):
     DATA_URL = "http://images.flowerchecker.com/images/{}-{}"
-    FILE_PATH = "flowerchecker/images/{}.jpg"
+    FILE_PATH = "datasets/flowerchecker/images/{}.jpg"
 
     data = json.load(open(dataset_file))
     print(len(data))
@@ -32,4 +34,24 @@ def download_flowerchecker_dataset(dataset_file="flowerchecker/images.json", siz
                     print("Problem with image", image)
         print()
 
-# download_flowerchecker_dataset("flowerchecker/dataset_v2_small.json")
+
+def move_files(source, target):
+    print(target, source)
+    for f in glob.glob(source + "/*.*"):
+        shutil.move(f, target,)
+
+
+def sort_orwens_plants(target_dir='flowerchecker/images-scrape', source_dir='flowerchecker/images-australia'):
+    plants = sorted(list(os.listdir(target_dir)))
+    for p in sorted(os.listdir(source_dir)):
+        parts = p.split(' ')
+        if len(parts) > 1:
+            name = parts[0] + ' ' + parts[1]
+            if name in plants:
+                move_files(os.path.join(source_dir, p), os.path.join(target_dir, name))
+                continue
+        if parts[0] in plants:
+            move_files(os.path.join(source_dir, p), os.path.join(target_dir, parts[0]))
+            continue
+        print('miss', p)
+        return
