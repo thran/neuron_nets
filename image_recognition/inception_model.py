@@ -2,7 +2,11 @@ import numpy as np
 import os
 
 import tensorflow as tf
+from tensorflow.python.client.graph_util import convert_variables_to_constants
+from tensorflow.python.platform import gfile
+
 import inception.inception_model as inception
+from image_recognition.datasets.dataset_processor import download_flowerchecker_dataset
 from image_recognition.utils import in_top_k, ensure_dir_exists, const_for_none
 from inception import slim
 from image_recognition.fc_datasets import FlowerCheckerDataSet
@@ -10,6 +14,7 @@ from image_recognition.fc_datasets import FlowerCheckerDataSet
 TENSOR_BOARD_DIR = "../tenzor_board"
 ORIGINAL_INCEPTION_CKPT_DIR = "models/inception-v3"
 CACHE_DIR = "/home/thran/projects/cache"
+MODEL_DIR = "models"
 INPUT_SIZE = 299, 299
 RMSPROP_DECAY = 0.9                # Decay term for RMSProp.
 RMSPROP_MOMENTUM = 0.9             # Momentum in RMSProp.
@@ -27,9 +32,14 @@ class InceptionModel:
         self._data_set = dataset
         self.class_count = dataset.class_count
         self.jpeg = tf.placeholder(dtype='string', name="jpeg")
-        self.lat_placeholder = tf.placeholder_with_default(tf.zeros([1], dtype=tf.float32), [None], name='lat_placeholder')
-        self.lng_placeholder = tf.placeholder_with_default(tf.zeros([1], dtype=tf.float32), [None], name='lng_placeholder')
-        self.week_placeholder = tf.placeholder_with_default(tf.zeros([1], dtype=tf.float32), [None], name='week_placeholder')
+
+        lat_placeholder = tf.placeholder_with_default(tf.zeros([], dtype=tf.float32), [], name='lat_placeholder')
+        self.lat_placeholder = tf.placeholder_with_default(tf.expand_dims(lat_placeholder, 0), [None])
+        lng_placeholder = tf.placeholder_with_default(tf.zeros([], dtype=tf.float32), [], name='lng_placeholder')
+        self.lng_placeholder = tf.placeholder_with_default(tf.expand_dims(lng_placeholder, 0), [None])
+        week_placeholder = tf.placeholder_with_default(tf.zeros([], dtype=tf.float32), [], name='week_placeholder')
+        self.week_placeholder = tf.placeholder_with_default(tf.expand_dims(week_placeholder, 0), [None])
+
         self.ground_truth = tf.placeholder(tf.float32, [None, self.class_count])
 
         self.processed_jpeq = None
@@ -150,13 +160,13 @@ class InceptionModel:
             net = slim.ops.fc(net, 50, restore=False)
         return net
 
-    def build_graph(self):
+    def build_graph(self, for_training=True):
         print("Building graph...")
         self.add_image_pre_processing()
         self.add_image_distortion()
         extra = self.add_meta_nn()
         self.logits = inception.inference(self.inception_input, self.class_count, extra_to_last_layer=extra,
-                                          for_training=True, restore_logits=False)
+                                          for_training=for_training, restore_logits=not for_training)
         self.add_train_step()
         self.add_result_ops()
 
@@ -234,12 +244,30 @@ class InceptionModel:
                 ensure_dir_exists(self.save_path)
                 saver.save(sess, path, global_step=step)
 
+
+def export():
+    with tf.Graph().as_default() as graph:
+        with tf.Session() as sess:
+            model = InceptionModel(ds)
+            model.build_graph(for_training=False)
+            model.load_last_checkpoint(sess)
+
+            output_file = os.path.join(MODEL_DIR, str(model) + ".pb")
+            graph_def = graph.as_graph_def()
+            graph_def = convert_variables_to_constants(sess, graph_def, ["results/predictions"])
+            with gfile.FastGFile(output_file, 'wb') as f:
+                f.write(graph_def.SerializeToString())
+
+
 # ds = FlowerCheckerDataSet()
-# download_flowerchecker_dataset("datasets/flowerchecker/dataset_v2_small.json")
+# download_flowerchecker_dataset("datasets/flowerchecker/real_dataset.json")
 ds = FlowerCheckerDataSet(file_name='dataset_v2_small.json')
 ds.prepare_data(validation_size=0.05)
 
-if True:
+export()
+
+
+if False:
     with tf.Graph().as_default():
         with tf.Session() as sess:
             model = InceptionModel(ds)

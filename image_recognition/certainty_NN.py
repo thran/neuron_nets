@@ -3,7 +3,7 @@ import matplotlib.pylab as plt
 import seaborn as sns
 import numpy as np
 import tensorflow as tf
-from image_recognition.old_version.dataset import CertaintyDataSet
+from image_recognition.dataset import CertaintyDataSet
 import tfdeploy as td
 
 

@@ -22,19 +22,19 @@ class FlowerCheckerDataSet(DataSet):
         self._identifiers.append(identifier)
         self.size += 1
 
-    def _load_data(self):
+    def _load_data(self, add_scrape=True):  # TODO remove scrape
         data = json.load(open(os.path.join(self.dir_name, self.file_name)))
         data = self._prepare_classes(data)
 
         self.size = 0
         for i, cls in enumerate(self._classes):
-            points = data[cls] if cls is not "unknown" else []
+            points = data[cls] if cls in data else []
             for point in points:
                 image_path = os.path.abspath(os.path.join(self.dir_name, "images", "{}.jpg".format(point["image"])))
                 meta = point
                 self._add_point((image_path, meta), i, hash_str(image_path))
             scrape_dir = os.path.join(self.dir_name, "images-scrape", cls)
-            if os.path.exists(scrape_dir):
+            if os.path.exists(scrape_dir) and add_scrape:
                 for image in os.listdir(scrape_dir):
                     image_path = os.path.abspath(os.path.join(scrape_dir, image))
                     meta = defaultdict(lambda: None)
@@ -79,5 +79,28 @@ def prepare_inception_dirs(dataset, output_dir='datasets/flowerchecker/inception
         ensure_dir_exists(dir)
         shutil.copy(image_path, dir)
 
-# ds = FlowerCheckerDataSet(file_name='dataset_v2_small.json')
-# ds.prepare_data()
+
+class CertaintyDataSet(DataSet):
+    def __init__(self, file_name="datasets/results-real.json"):
+        super().__init__()
+        self.file_name = file_name
+
+    def _load_data(self):
+        data = json.load(open(self.file_name))
+        self.size = 0
+        for point in data:
+            self._labels.append([
+                point["label"] == np.argsort(point['raw'])[-1],
+                point["label"] == np.argsort(point['raw'])[-2],
+                point["label"] == np.argsort(point['raw'])[-3],
+                point["label"] in np.argsort(point['raw'])[-3:],
+                point["label"] in np.argsort(point['raw'])[-5:],
+                point['softmax'][point["label"]] > 0.05,
+            ] if point["label"] is not None else [False] * 6)
+            self._data.append(sorted(point['raw']))
+            self._identifiers.append(point["identifier"])
+            self.size += 1
+
+        self._labels = np.array(self._labels)
+        self._data = np.array(self._data)
+        self._identifiers = np.array(self._identifiers)
