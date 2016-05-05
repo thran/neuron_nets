@@ -3,8 +3,35 @@ import matplotlib.pylab as plt
 import seaborn as sns
 import numpy as np
 import tensorflow as tf
-from image_recognition.dataset import CertaintyDataSet
 import tfdeploy as td
+
+from dataset import DataSet
+
+
+class CertaintyDataSet(DataSet):
+    def __init__(self, file_name="datasets/results-real.json"):
+        super().__init__()
+        self.file_name = file_name
+
+    def _load_data(self, add_scrape=True):
+        data = json.load(open(self.file_name))
+        self.size = 0
+        for point in data:
+            self._labels.append([
+                point["label"] == np.argsort(point['raw'])[-1],
+                point["label"] == np.argsort(point['raw'])[-2],
+                point["label"] == np.argsort(point['raw'])[-3],
+                point["label"] in np.argsort(point['raw'])[-3:],
+                point["label"] in np.argsort(point['raw'])[-5:],
+                point['softmax'][point["label"]] > 0.05,
+            ] if point["label"] is not None else [False] * 6)
+            self._data.append(sorted(point['raw']))
+            self._identifiers.append(point["identifier"])
+            self.size += 1
+
+        self._labels = np.array(self._labels)
+        self._data = np.array(self._data)
+        self._identifiers = np.array(self._identifiers)
 
 
 def reliability_curve(y_true, y_score, bins=10):
@@ -57,7 +84,7 @@ class CertaintyNN:
         with tf.name_scope("train") as scope:
             self.train_step = tf.train.AdamOptimizer(5e-5).minimize(self.rmse)
 
-    def train(self, sess, data_set, steps=15000, batch_size=1000):
+    def train(self, sess, data_set, steps=20000, batch_size=1000):
         sess.run(tf.initialize_all_variables())
         for i in range(steps):
             batch = data_set.train.get_batch(batch_size)
@@ -84,7 +111,7 @@ class CertaintyNN:
             self.keep_prob: 1,
         })
 
-        for i in [0, 1, 2, 3, 4]:
+        for i in [0, 3, 4, 5]:
             plt.figure()
             plt.subplot(311)
             for output, raws, truth in zip(outputs, data[0], data[1]):
@@ -107,7 +134,7 @@ class CertaintyNN:
 
 
 data_set = CertaintyDataSet()
-data_set.prepare_data(test_size=0)
+data_set.prepare_data()
 
 nn = CertaintyNN(input_size=len(data_set._data[0]), output_size=len(data_set._labels[0]))
 with tf.Session() as sess:

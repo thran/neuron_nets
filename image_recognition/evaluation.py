@@ -92,7 +92,8 @@ class Model:
         with tf.Session() as sess:
             hits = 0
             for i, (image, meta, label, _) in enumerate(data_set):
-                print('\r>> Evaluating {} from {} {:.1f}%'.format(i + 1, data_set.size, (i + 1) / data_set.size * 100), end="")
+                print('\r>> Evaluating {} from {} ({:.1f}%) - {:.2f}%'.format(
+                    i + 1, data_set.size, (i + 1) / data_set.size * 100, hits / (i + 1) * 100), end="")
                 result = self.predict(sess, (image, meta))
                 if sum(label) > 0:
                     hits += 1 if np.argmax(result) == np.argmax(label) else 0
@@ -148,12 +149,12 @@ model = Model("IncMod v0.2 - 320 plants.pb")
 
 ds = CustomFlowerCheckerDataSet(file_name='real_dataset.json')
 ds.prepare_data(add_scrape=False)
-model.save_all_results(ds)
+# model.save_all_results(ds)
 
 # ds = FlowerCheckerDataSet(file_name='dataset_v2_small.json')
 # ds.prepare_data(validation_size=0.05)
 
-# model.evaluate(ds.validation)
+model.evaluate(ds.validation)
 
 # with tf.Session() as sess:
 #     model.show_random_images(sess, ds.validation)
