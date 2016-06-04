@@ -145,7 +145,36 @@ class Model:
                 })
         json.dump(results, open("results-real.json", "w"))
 
-model = Model("IncMod v0.2 - 320 plants.pb")
+    def visualization(self):
+        def plot_img(img):
+            # img = (img - img.mean()) / max(img.std(), 1e-4) * 0.1
+            img = np.clip((img[0] + 1) / 2, 0, 1)
+            plt.imshow(img)
+            plt.show()
+
+        layer = 'results/predictions'
+        layer_tensor = self.graph.get_tensor_by_name("{}:0".format(layer))
+        layer_tensor = layer_tensor[:, 0]
+
+        score_tensor = tf.reduce_mean(layer_tensor)
+        input_tensor = self.graph.get_tensor_by_name("pre_process_image/PlaceholderWithDefault:0")
+        grad = tf.gradients(score_tensor, input_tensor)[0]
+
+        with tf.Session() as sess:
+            img = np.random.uniform(-1, 1, size=[1, 299, 299, 3]) * 0.1
+            # image = tf.gfile.FastGFile('/home/thran/kytka.jpg', 'rb').read()
+            # img = sess.run(input_tensor, {self.image_data_placeholder: image})
+            for i in range(30):
+                if (i - 1) % 10 == 0:
+                    plot_img(img)
+                g, score = sess.run([grad, score_tensor], {input_tensor: img})
+                print(score)
+                g /= g.std() + 1e-8
+                img += g * 1.0
+            plot_img(img)
+
+model = Model("IncMod v0.2b - 320 plants.pb")
+# model.visualization()
 
 ds = CustomFlowerCheckerDataSet(file_name='real_dataset.json')
 ds.prepare_data(add_scrape=False)
@@ -154,8 +183,12 @@ ds.prepare_data(add_scrape=False)
 # ds = FlowerCheckerDataSet(file_name='dataset_v2_small.json')
 # ds.prepare_data(validation_size=0.05)
 
-model.evaluate(ds.validation)
+model.evaluate(ds)
 
 # with tf.Session() as sess:
 #     model.show_random_images(sess, ds.validation)
 #     model.identify_plant(sess, ("/home/thran/kytka.jpg", defaultdict(lambda: 0)), FC_data_set)
+
+
+# >> Evaluating 15987 from 15987 (100.0%) - 58.24%
+# >> Evaluating 15987 from 15987 (100.0%) - 55.36%
