@@ -22,7 +22,7 @@ class FlowerCheckerDataSet(DataSet):
         self._identifiers.append(identifier)
         self.size += 1
 
-    def _load_data(self, add_scrape=True):  # TODO remove scrape
+    def _load_data(self):
         data = json.load(open(os.path.join(self.dir_name, self.file_name)))
         data = self._prepare_classes(data)
 
@@ -30,15 +30,9 @@ class FlowerCheckerDataSet(DataSet):
         for i, cls in enumerate(self._classes):
             points = data[cls] if cls in data else []
             for point in points:
-                image_path = os.path.abspath(os.path.join(self.dir_name, "images", "{}.jpg".format(point["image"])))
+                image_path = point["image"]
                 meta = point
                 self._add_point((image_path, meta), i, hash_str(image_path))
-            scrape_dir = os.path.join(self.dir_name, "images-scrape", cls)
-            if os.path.exists(scrape_dir) and add_scrape:
-                for image in os.listdir(scrape_dir):
-                    image_path = os.path.abspath(os.path.join(scrape_dir, image))
-                    meta = defaultdict(lambda: None)
-                    self._add_point((image_path, meta), i, hash_str(image_path))
 
         self._labels = dense_to_one_hot(np.array(self._labels), num_classes=self.class_count)
         self._data = np.array(self._data)
@@ -80,6 +74,37 @@ def prepare_inception_dirs(dataset, output_dir='datasets/flowerchecker/inception
         shutil.copy(image_path, dir)
 
 
+def change_image_codes_to_paths(file_name, dir_name="datasets/flowerchecker"):
+    data = json.load(open(os.path.join(dir_name, file_name)))
+    for points in data.values():
+        for point in points:
+            if '/' not in point['image']:
+                point['image'] = os.path.abspath(os.path.join(dir_name, "images", "{}.jpg".format(point["image"])))
+
+    json.dump(data, open(os.path.join(dir_name, file_name), 'w'))
+
+
+def add_scraped_images(file_name, dir_name="datasets/flowerchecker"):
+    data = json.load(open(os.path.join(dir_name, file_name)))
+    print('Points before', sum(map(len, data.values())))
+
+    for i, cls in enumerate(sorted(data.keys())):
+        scrape_dir = os.path.join(dir_name, "images-scrape", cls)
+        if os.path.exists(scrape_dir):
+            for image in os.listdir(scrape_dir):
+                image_path = os.path.abspath(os.path.join(scrape_dir, image))
+                data[cls].append({
+                    "lat": None,
+                    "lng": None,
+                    "week": None,
+                    "date": None,
+                    "image": image_path,
+                })
+
+    print('Points after', sum(map(len, data.values())))
+    json.dump(data, open(os.path.join(dir_name, file_name.replace('.json', '.with_scrape.json')), 'w'))
+
+
 class CertaintyDataSet(DataSet):
     def __init__(self, file_name="datasets/results-real.json"):
         super().__init__()
@@ -104,3 +129,6 @@ class CertaintyDataSet(DataSet):
         self._labels = np.array(self._labels)
         self._data = np.array(self._data)
         self._identifiers = np.array(self._identifiers)
+
+# change_image_codes_to_paths('dataset-1024.json')
+# add_scraped_images('dataset-1024.json')

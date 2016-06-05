@@ -17,9 +17,9 @@ class DataSet:
         self._position = 0
         self._position_part = 0
 
-    def prepare_data(self, validation_size=0.1, test_size=0, balanced_train=False, seed=42, add_scrape=True):
+    def prepare_data(self, validation_size=0.1, test_size=0, balanced_train=False, seed=42):
         np.random.seed(seed)
-        self._load_data(add_scrape=add_scrape)
+        self._load_data()
         self._shuffle_data()
         self._split_data(validation_size=validation_size, test_size=test_size)
         if balanced_train:
@@ -38,7 +38,7 @@ class DataSet:
     def _pre_process_point(self, point, label, identifier):
         return point, label, identifier
 
-    def _load_data(self, add_scrape):
+    def _load_data(self):
         pass
 
     def _shuffle_data(self):
