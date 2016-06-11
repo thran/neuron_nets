@@ -1,12 +1,15 @@
+import json
+
 import numpy as np
 import os
+import shutil
 
 import tensorflow as tf
 from tensorflow.python.client.graph_util import convert_variables_to_constants
 from tensorflow.python.platform import gfile
 
 import inception.inception_model as inception
-from image_recognition.datasets.dataset_processor import download_flowerchecker_dataset
+from image_recognition.datasets.dataset_processor import download_flowerchecker_dataset, clean_dataset
 from image_recognition.utils import in_top_k, ensure_dir_exists, const_for_none
 from inception import slim
 from image_recognition.fc_datasets import FlowerCheckerDataSet
@@ -170,22 +173,28 @@ class InceptionModel:
         self.add_train_step()
         self.add_result_ops()
 
-    def init_fresh_model(self, sess):
-        print("Loading original inception...")
+    def init_fresh_model(self, sess, start_from=None):
         sess.run(tf.initialize_all_variables())
-        ckpt = tf.train.get_checkpoint_state(ORIGINAL_INCEPTION_CKPT_DIR).model_checkpoint_path
+
+        if start_from:
+            print("Loading older model ... " + start_from)
+            ckpt = start_from
+        else:
+            print("Loading original inception...")
+            ckpt = tf.train.get_checkpoint_state(ORIGINAL_INCEPTION_CKPT_DIR).model_checkpoint_path
+
         variables_to_restore = tf.get_collection(slim.variables.VARIABLES_TO_RESTORE)
         saver = tf.train.Saver(variables_to_restore)
         saver.restore(sess, ckpt)
 
-    def load_last_checkpoint(self, sess, checkpoint=None, saver=None):
+    def load_last_checkpoint(self, sess, checkpoint=None, saver=None, start_from=None):
         saver = saver if saver else tf.train.Saver()
         last_checkpoint = checkpoint if checkpoint else tf.train.latest_checkpoint(self.save_path)
         if last_checkpoint:
             print("Restoring checkpoint...")
             saver.restore(sess, last_checkpoint)
         else:
-            self.init_fresh_model(sess)
+            self.init_fresh_model(sess, start_from=start_from)
 
     def get_feed_dict(self, points):
         images, metas, labels, _ = points
@@ -219,10 +228,10 @@ class InceptionModel:
             summary.value.add(tag='Recall @ 5', simple_value=hits5 / dataset.size)
         return accuracy, summary
 
-    def train(self, sess, batch_size=20, evaluate_every=500, save_every=2000, checkpoint=None):
+    def train(self, sess, batch_size=20, evaluate_every=500, save_every=2000, checkpoint=None, start_from=None):
         summary_writer = tf.train.SummaryWriter(self.tensor_board_path, sess.graph, flush_secs=30)
         saver = tf.train.Saver(max_to_keep=2)
-        self.load_last_checkpoint(sess, saver=saver, checkpoint=checkpoint)
+        self.load_last_checkpoint(sess, saver=saver, checkpoint=checkpoint, start_from=start_from)
         print("Training...")
         while True:
             sess.run(self.global_step.assign_add(1))
@@ -259,12 +268,13 @@ def export():
                 f.write(graph_def.SerializeToString())
 
 
-# ds = FlowerCheckerDataSet()
-# download_flowerchecker_dataset("datasets/flowerchecker/real_dataset.json")
-ds = FlowerCheckerDataSet(file_name='dataset_v2_small.json')
+file_name = "datasets/flowerchecker/dataset-1024.with_scrape.json"
+# download_flowerchecker_dataset(file_name)
+# clean_dataset(file_name, FlowerCheckerDataSet, InceptionModel)
+ds = FlowerCheckerDataSet(file_name='dataset-1024.with_scrape.json')
 ds.prepare_data(validation_size=0.05)
 
-export()
+# export()
 
 
 if False:
@@ -274,4 +284,6 @@ if False:
             model.build_graph()
             ds.validation.pre_process_image = lambda img: model.pre_process_image(sess, img)
             ds.train.pre_process_image = lambda img: model.distort_image(sess, img)
-            model.train(sess)
+
+            start_from = '/home/thran/projects/cache/checkpoints/IncMod v0.2 - 320 plants/checkpoint-174000'
+            model.train(sess, start_from=start_from)

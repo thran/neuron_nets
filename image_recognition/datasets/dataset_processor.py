@@ -3,7 +3,7 @@ import json
 import os
 import urllib.request
 import urllib.error
-
+import tensorflow as tf
 import scipy.io
 import shutil
 
@@ -23,6 +23,8 @@ def download_flowerchecker_dataset(dataset_file="datasets/flowerchecker/images.j
         d = data[label]
         images = d["images"] if "images" in d else [p["image"] for p in d]
         for i, image in enumerate(images):
+            if '/' in image:
+                image = image.split('/')[-1][:-4]
             count = len(images)
             print('\r>> Downloading FC images of {}: {} from {} - {:.1f}%'
                   .format(label, i + 1, count, (i + 1) / count * 100.0), end="")
@@ -55,3 +57,29 @@ def sort_orwens_plants(target_dir='flowerchecker/images-scrape', source_dir='flo
             continue
         print('miss', p)
         return
+
+
+def clean_dataset(file_name, dataset_class, model_class, check_image_files=False):
+    def check_image(img):
+        try:
+            model.pre_process_image(sess, img)
+        except:
+            print(img)
+            shutil.move(img, "/tmp/" + img.split('/')[-1])
+
+    if check_image_files:
+        dataset = dataset_class(file_name=file_name)
+        dataset.prepare_data()
+        dataset.pre_process_image = check_image
+        with tf.Session() as sess:
+            model = model_class(dataset)
+            model.build_graph()
+            for i, _ in enumerate(dataset):
+                print("\r>>> Step: {} / {}".format(i, dataset.size), end="")
+
+    data = json.load(open(file_name))
+    for points in data.values():
+        for point in points:
+            if not os.path.exists(point['image']):
+                points.remove(point)
+    json.dump(data, open(file_name, 'w'))
