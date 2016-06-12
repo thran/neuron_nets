@@ -24,8 +24,8 @@ WEEK_TENSOR_NAME = 'week_placeholder:0'
 
 
 class CustomFlowerCheckerDataSet(FlowerCheckerDataSet):
-    def _prepare_classes(self, data):
-        fc = FlowerCheckerDataSet(file_name='dataset_v2_small.json')
+    def _prepare_classes(self, data, file_name='dataset-1024.json'):
+        fc = FlowerCheckerDataSet(file_name=file_name)
         fc.prepare_data()
         self._classes = fc._classes
         self.class_count = len(self._classes)
@@ -135,7 +135,7 @@ class Model:
         prediction = self.predict(sess, (image, meta), with_raw_predictions=True)
         plot_image((image, meta), prediction[0], data_set, prediction[1], prediction[2])
 
-    def save_all_results(self, data_set):
+    def save_all_results(self, data_set, file_name="results-real.json"):
         results = []
         with tf.Session() as sess:
             for i, (image, meta, label, identifier) in enumerate(data_set):
@@ -147,7 +147,7 @@ class Model:
                     "identifier": identifier,
                     "label": int(np.argmax(label)) if sum(label) > 0 else None,
                 })
-        json.dump(results, open("results-real.json", "w"))
+        json.dump(results, open(file_name, "w"))
 
     def visualization(self):
         def plot_img(img):
@@ -211,9 +211,9 @@ model = Model("IncMod v0.2 - 1025 plants.pb", json.load(open('models/classes-102
 # change_image_codes_to_paths(file_name='real_dataset_v3.json')
 # download_flowerchecker_dataset("datasets/flowerchecker/real_dataset_v3.json")
 
-ds = FlowerCheckerDataSet(file_name='real_dataset_v2.json')
+ds = CustomFlowerCheckerDataSet(file_name='real_dataset_v3.json')
 ds.prepare_data()
-model.save_all_results(ds)
+model.save_all_results(ds, "results-real-1025.json")
 
 # model.visualization()
 # ds = FlowerCheckerDataSet(file_name='dataset_v2_small.json')

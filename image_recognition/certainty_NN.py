@@ -127,17 +127,17 @@ class CertaintyNN:
             plt.xlim([0, 1])
         plt.show()
 
-    def save(self, sess):
+    def save(self, sess, file_name='certainty_model.pkl'):
         model = td.Model()
         model.add(self.output, sess)
-        model.save("models/certainty_model.pkl")
+        model.save("models/{}".format(file_name))
 
 
-data_set = CertaintyDataSet()
+data_set = CertaintyDataSet(file_name="datasets/results-real-1025.json")
 data_set.prepare_data()
 
 nn = CertaintyNN(input_size=len(data_set._data[0]), output_size=len(data_set._labels[0]))
 with tf.Session() as sess:
     nn.train(sess, data_set)
     nn.evaluate(sess, data_set.validation)
-    nn.save(sess)
+    nn.save(sess, 'certainty_model-1025.pkl')
