@@ -1,4 +1,6 @@
 import json
+
+import pandas as pd
 from collections import defaultdict
 import os
 import tensorflow as tf
@@ -6,7 +8,8 @@ import tfdeploy as td
 import numpy as np
 from json import encoder
 
-from image_recognition.fc_datasets import FlowerCheckerDataSet
+from image_recognition.datasets.dataset_processor import download_flowerchecker_dataset
+from image_recognition.fc_datasets import FlowerCheckerDataSet, change_image_codes_to_paths
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -72,8 +75,9 @@ class CertaintyModel:
 
 
 class Model:
-    def __init__(self, model_name):
+    def __init__(self, model_name, classes):
         self.certainty_model = CertaintyModel()
+        self._classes = classes
         with tf.Session() as sess:
             model_filename = os.path.join(MODEL_DIR, model_name)
             with tf.gfile.FastGFile(model_filename, 'rb') as f:
@@ -173,22 +177,62 @@ class Model:
                 img += g * 1.0
             plot_img(img)
 
-model = Model("IncMod v0.2b - 320 plants.pb")
+    def get_predictions(self, data_set):
+        results = pd.DataFrame(columns=['id', 'prediction', 'true_class', 'class_known', 'genus_correct', 'correct'])
+        with tf.Session() as sess:
+            hits = 0
+            for i, (image, meta, label, identifier) in enumerate(data_set):
+                result = self.predict(sess, (image, meta))
+
+                predicted_class = self._classes[np.argmax(result)]
+                true_class = data_set.get_class(label)
+
+                if sum(label) > 0:
+                    hits += 1 if true_class.split(' ')[0] == predicted_class.split(' ')[0] else 0
+
+                print('\r>> Evaluating {} from {} ({:.1f}%) - {:.2f}%'.format(
+                    i + 1, data_set.size, (i + 1) / data_set.size * 100, hits / (i + 1) * 100), end="")
+
+                results.loc[len(results)] = [
+                    identifier,
+                    predicted_class,
+                    true_class,
+                    true_class in self._classes,
+                    true_class.split(' ')[0] == predicted_class.split(' ')[0],
+                    true_class == predicted_class,
+                ]
+                # print(results.loc[len(results) - 1])
+
+        return results
+
+
+model = Model("IncMod v0.2 - 1025 plants.pb", json.load(open('models/classes-1025.json')))
+# model = Model("IncMod v0.2b - 320 plants.pb", json.load(open('models/classes-320.json')))
+# change_image_codes_to_paths(file_name='real_dataset_v3.json')
+# download_flowerchecker_dataset("datasets/flowerchecker/real_dataset_v3.json")
+
+ds = FlowerCheckerDataSet(file_name='real_dataset_v2.json')
+ds.prepare_data()
+model.save_all_results(ds)
+
 # model.visualization()
-
-ds = CustomFlowerCheckerDataSet(file_name='real_dataset.json')
-ds.prepare_data(add_scrape=False)
-# model.save_all_results(ds)
-
 # ds = FlowerCheckerDataSet(file_name='dataset_v2_small.json')
 # ds.prepare_data(validation_size=0.05)
 
-model.evaluate(ds)
+# model.evaluate(ds)
 
 # with tf.Session() as sess:
 #     model.show_random_images(sess, ds.validation)
 #     model.identify_plant(sess, ("/home/thran/kytka.jpg", defaultdict(lambda: 0)), FC_data_set)
 
+if False:
+    for name, model in [
+        # ('320', Model("IncMod v0.2 - 320 plants.pb", json.load(open('models/classes-320.json')))),
+        ('320without', Model("IncMod v0.2b - 320 plants.pb", json.load(open('models/classes-320.json')))),
+        # ('1025', Model("IncMod v0.2 - 1025 plants.pb", json.load(open('models/classes-1025.json')))),
+    ]:
+        ds = FlowerCheckerDataSet(file_name='real_dataset_v3.json')
+        ds.prepare_data()
+        model.get_predictions(ds).to_pickle('eval_v3-{}.pd'.format(name))
+        print()
 
-# >> Evaluating 15987 from 15987 (100.0%) - 58.24%
-# >> Evaluating 15987 from 15987 (100.0%) - 55.36%

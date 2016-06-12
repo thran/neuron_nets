@@ -273,6 +273,7 @@ file_name = "datasets/flowerchecker/dataset-1024.with_scrape.json"
 # clean_dataset(file_name, FlowerCheckerDataSet, InceptionModel)
 ds = FlowerCheckerDataSet(file_name='dataset-1024.with_scrape.json')
 ds.prepare_data(validation_size=0.05)
+# ds.export_classes('models/classes-320.json')
 
 # export()
 
