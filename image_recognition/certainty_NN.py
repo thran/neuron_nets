@@ -140,4 +140,4 @@ nn = CertaintyNN(input_size=len(data_set._data[0]), output_size=len(data_set._la
 with tf.Session() as sess:
     nn.train(sess, data_set)
     nn.evaluate(sess, data_set.validation)
-    nn.save(sess, 'certainty_model-1025.pkl')
+    nn.save(sess, 'eval/certainty_model-1025.pkl')

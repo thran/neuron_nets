@@ -4,4 +4,5 @@ image_recognition/models
 image_recognition/cache
 image_recognition/datasets/102-Oxford/*
 image_recognition/datasets/flowerchecker/*
+image_recognition/eval
 tenzor_board

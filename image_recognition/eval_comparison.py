@@ -3,10 +3,10 @@ import matplotlib.pylab as plt
 import seaborn as sns
 
 
-to_compare = ['320', '320without', '1025']
+to_compare = ['320', '320without', '1025', '1025crops5', '1025crops9', '1025crops16']
 
 # dfs = [pd.read_pickle('eval-{}.pd'.format(name)) for name in to_compare]
-dfs = [pd.read_pickle('eval_v3-{}.pd'.format(name)) for name in to_compare]
+dfs = [pd.read_pickle('eval/eval_v3-{}.pd'.format(name)) for name in to_compare]
 
 plt.subplot(221)
 plt.title('Direct hits')
